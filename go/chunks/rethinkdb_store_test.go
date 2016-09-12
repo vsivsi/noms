@@ -13,22 +13,22 @@ import (
 	"github.com/attic-labs/testify/suite"
 )
 
-func TestLevelDBStoreTestSuite(t *testing.T) {
-	suite.Run(t, &LevelDBStoreTestSuite{})
+func TestRethinkStoreTestSuite(t *testing.T) {
+	suite.Run(t, &RethinkStoreTestSuite{})
 }
 
-type LevelDBStoreTestSuite struct {
+type RethinkStoreTestSuite struct {
 	ChunkStoreTestSuite
 	factory Factory
 	dir     string
 }
 
-func (suite *LevelDBStoreTestSuite) SetupTest() {
+func (suite *RethinkStoreTestSuite) SetupTest() {
 	var err error
 	suite.dir, err = ioutil.TempDir(os.TempDir(), "")
 	suite.NoError(err)
-	suite.factory = NewLevelDBStoreFactory(suite.dir, 24, false)
-	store := suite.factory.CreateStore("name").(*LevelDBStore)
+	suite.factory = NewRethinkStoreFactory(suite.dir, "test", false)
+	store := suite.factory.CreateStore("name").(*RethinkStore)
 	suite.putCountFn = func() int {
 		return int(store.putCount)
 	}
@@ -36,13 +36,13 @@ func (suite *LevelDBStoreTestSuite) SetupTest() {
 	suite.Store = store
 }
 
-func (suite *LevelDBStoreTestSuite) TearDownTest() {
+func (suite *RethinkStoreTestSuite) TearDownTest() {
 	suite.Store.Close()
 	suite.factory.Shutter()
 	os.Remove(suite.dir)
 }
 
-func (suite *LevelDBStoreTestSuite) TestReservedKeys() {
+func (suite *RethinkStoreTestSuite) TestReservedKeys() {
 	// Apparently, the following:
 	//  s := []byte("")
 	//  s = append(s, 1, 2, 3)
@@ -51,8 +51,8 @@ func (suite *LevelDBStoreTestSuite) TestReservedKeys() {
 	//
 	// Results in both f and g being [1, 2, 3, 4, 5, 6]
 	// This was happening to us here, so ldb.chunkPrefix was "/chunk/" and ldb.rootKey was "/chun" instead of "/root"
-	ldb := suite.factory.CreateStore("").(*LevelDBStore)
-	suite.True(bytes.HasSuffix(ldb.rootKey, []byte(rootKeyConst)))
-	suite.True(bytes.HasSuffix(ldb.versionKey, []byte(versionKeyConst)))
-	suite.True(bytes.HasSuffix(ldb.chunkPrefix, []byte(chunkPrefixConst)))
+	l := suite.factory.CreateStore("").(*RethinkStore)
+	// suite.True(bytes.HasSuffix(l.rootKey, []byte(rootKeyConst)))
+	// suite.True(bytes.HasSuffix(l.versionKey, []byte(versionKeyConst)))
+	suite.True(bytes.HasSuffix(l.chunkPrefix, []byte(rethinkChunkPrefixConst)))
 }
