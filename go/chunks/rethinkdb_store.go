@@ -18,30 +18,31 @@ import (
 
 const (
 	rethinkSysTable         = "sys"
-   rethinkChunkTable       = "chunks"
+	rethinkChunkTable       = "chunks"
+	rethinkChunkPrefixConst = "/chunk/"
 )
 
 type rethinkVersionDoc struct {
-   id        []byte
-   version   string
+	id      []byte
+	version string
 }
 
 type rethinkRootDoc struct {
-   id        []byte
-   root      []byte
+	id   []byte
+	root []byte
 }
 
 type rethinkChunkDoc struct {
-   id        []byte
-   data      []byte
+	id   []byte
+	data []byte
 }
 
 type RethinkDBStoreFlags struct {
-	dumpStats      bool
+	dumpStats bool
 }
 
 var (
-	rethinkFlags        = RethinkDBStoreFlags{false}
+	rethinkFlags           = RethinkDBStoreFlags{false}
 	rethinkFlagsRegistered = false
 )
 
@@ -69,7 +70,8 @@ func newRethinkStore(store *internalRethinkStore, ns []byte, closeBackingStore b
 	return &RethinkStore{
 		internalRethinkStore: store,
 		rootKey:              []byte(""),
-      versionKey:           []byte(""),
+		versionKey:           []byte(""),
+		chunkPrefix:          copyNsAndAppend(rethinkChunkPrefixConst),
 		closeBackingStore:    closeBackingStore,
 	}
 }
@@ -78,6 +80,7 @@ type RethinkStore struct {
 	*internalRethinkStore
 	rootKey           []byte
 	versionKey        []byte
+	chunkPrefix       []byte
 	closeBackingStore bool
 	versionSetOnce    sync.Once
 }
@@ -120,10 +123,10 @@ func (l *RethinkStore) PutMany(chunks []Chunk) (e BackpressureError) {
 	// numBytes := 0
 	// b := new(Rethink.Batch)
 
-   // TODO: This is an initial implementation using individual Puts
-   // This can almost certainly be batched into a single insert
+	// TODO: This is an initial implementation using individual Puts
+	// This can almost certainly be batched into a single insert
 	for _, c := range chunks {
-      l.putByKey(l.toChunkKey(c.Hash()), c)
+		l.putByKey(l.toChunkKey(c.Hash()), c)
 		// data := snappy.Encode(nil, c.Data())
 		// numBytes += len(data)
 		// b.Put(l.toChunkKey(c.Hash()), data)
@@ -148,18 +151,19 @@ func (l *RethinkStore) toChunkKey(r hash.Hash) []byte {
 }
 
 func (l *RethinkStore) setVersIfUnset() {
-	exists, err := l.session.Has(l.versionKey, nil)
-	d.Chk.NoError(err)
-	if !exists {
-		l.setVersByKey(l.versionKey)
-	}
+	// The Rethink query handles this case...
+	// exists, err := l.session.Has(l.versionKey, nil)
+	// d.Chk.NoError(err)
+	// if !exists {
+	l.setVersByKey(l.versionKey)
+	//}
 }
 
 type internalRethinkStore struct {
-	session	                              *r.Session
+	session                                *r.Session
 	db                                     string
-   sys                                    r.Term
-   chunks                                 r.Term
+	sys                                    r.Term
+	chunks                                 r.Term
 	getCount, hasCount, putCount, putBytes int64
 	dumpStats                              bool
 }
@@ -169,39 +173,39 @@ func newRethinkBackingStore(url, db string, dumpStats bool) *internalRethinkStor
 	d.PanicIfTrue(db == "", "db cannot be empty")
 
 	session, err := r.Connect(r.ConnectOpts{
-		Address: url,
-      Database: db,
-   })
+		Address:  url,
+		Database: db,
+	})
 	d.Chk.NoError(err, "opening connection %s in internalRethinkStore", url)
 
 	// Create requested DB if it doesn't exist
-   _, err = r.Branch(
-                     r.DBList().Contains(db),
-                     r.Expr(map[string]interface{}{"dbs_created": 0,}),
-                     r.DBCreate(db)).Run(session)
+	_, err = r.Branch(
+		r.DBList().Contains(db),
+		r.Expr(map[string]interface{}{"dbs_created": 0}),
+		r.DBCreate(db)).Run(session)
 	d.Chk.NoError(err, "conditionally creating requested DB %s in internalRethinkStore", db)
 
 	// Create system table if it doesn't exist
-   _, err = r.Branch(
-                     r.TableList().Contains(rethinkSysTable),
-                     r.Expr(map[string]interface{}{"tables_created": 0,}),
-                     r.TableCreate(rethinkSysTable)).Run(session)
+	_, err = r.Branch(
+		r.TableList().Contains(rethinkSysTable),
+		r.Expr(map[string]interface{}{"tables_created": 0}),
+		r.TableCreate(rethinkSysTable)).Run(session)
 
 	d.Chk.NoError(err, "conditionally creating system table %s in internalRethinkStore", rethinkSysTable)
 
 	// Create chunk table if it doesn't exist
-   _, err = r.Branch(
-                     r.TableList().Contains(rethinkChunkTable),
-                     r.Expr(map[string]interface{}{"tables_created": 0,}),
-                     r.TableCreate(rethinkChunkTable)).Run(session)
+	_, err = r.Branch(
+		r.TableList().Contains(rethinkChunkTable),
+		r.Expr(map[string]interface{}{"tables_created": 0}),
+		r.TableCreate(rethinkChunkTable)).Run(session)
 
 	d.Chk.NoError(err, "conditionally creating chunk table %s in internalRethinkStore", rethinkChunkTable)
 
 	return &internalRethinkStore{
 		session:   session,
-      db:        db,
-      sys:       r.Table(rethinkSysTable),
-      chunks:    r.Table(rethinkChunkTable),
+		db:        db,
+		sys:       r.Table(rethinkSysTable),
+		chunks:    r.Table(rethinkChunkTable),
 		dumpStats: dumpStats,
 	}
 }
@@ -215,15 +219,20 @@ func (l *internalRethinkStore) rootByKey(key []byte) hash.Hash {
 	} else {
 		d.Chk.NoError(cursor.Err())
 		return hash.Hash{}
-   }
+	}
 }
 
 func (l *internalRethinkStore) updateRootByKey(key []byte, current, last hash.Hash) bool {
-
-	cursor, err := l.sys.Get(key).Replace(r.Branch(r.Row.IsEmpty().Or(r.Row.Field("root").Eq([]byte(last.String()))),
-                                                  r.Expr(rethinkRootDoc{ id: key, root: []byte(current.String()) } ),
-                                                  r.Row),
-													  r.ReplaceOpts{ Durability: "hard", ReturnChanges: true }).RunWrite(l.session)
+	// TODO: do something with the response below?
+	_, err := l.sys.Get(key).Replace(
+		r.Branch(
+			r.Row.IsEmpty().Or(r.Row.Field("root").Eq([]byte(last.String()))),
+			r.Expr(rethinkRootDoc{
+				id:   key,
+				root: []byte(current.String()),
+			}),
+			r.Row),
+		r.ReplaceOpts{Durability: "hard", ReturnChanges: true}).RunWrite(l.session)
 	d.Chk.NoError(err)
 	return true
 }
@@ -240,7 +249,7 @@ func (l *internalRethinkStore) getByKey(key []byte, ref hash.Hash) Chunk {
 	} else {
 		d.Chk.NoError(cursor.Err())
 		return EmptyChunk
-   }
+	}
 }
 
 func (l *internalRethinkStore) hasByKey(key []byte) bool {
@@ -249,13 +258,13 @@ func (l *internalRethinkStore) hasByKey(key []byte) bool {
 	var exists bool
 	err = cursor.One(&exists)
 	d.Chk.NoError(err)
-   l.hasCount++
+	l.hasCount++
 	return exists
 }
 
 func (l *internalRethinkStore) versByKey(key []byte) string {
 	var res string
-   cursor, err := l.sys.Get(key).Field("version").Run(l.session)
+	cursor, err := l.sys.Get(key).Field("version").Run(l.session)
 	defer cursor.Close()
 	d.Chk.NoError(err)
 	if cursor.Next(&res) {
@@ -267,33 +276,40 @@ func (l *internalRethinkStore) versByKey(key []byte) string {
 }
 
 func (l *internalRethinkStore) setVersByKey(key []byte) {
-	cursor, err := l.sys.Insert(rethinkVersionDoc{ id: key, version: constants.NomsVersion }).Run(l.session)
+	// TODO: do something with the response below?
+	_, err := l.sys.Get(key).Replace(
+		r.Branch(
+			r.Row.IsEmpty(),
+			r.Expr(
+				rethinkVersionDoc{
+					id:      key,
+					version: constants.NomsVersion,
+				}),
+			r.Row,
+		)).RunWrite(l.session)
 	d.Chk.NoError(err)
-	var result interface{}
-	err = cursor.One(&result)
-	d.Chk.NoError(err)
-	// TODO: do something with the result?
 }
 
 func (l *internalRethinkStore) putByKey(key []byte, c Chunk) {
 	data := snappy.Encode(nil, c.Data())
-	// err := l.db.Put(key, data, nil)
-	cursor, err := l.chunks.Insert(rethinkChunkDoc{ id: key, data: data }).Run(l.session)
+	// TODO: do something with the response below?
+	_, err := l.chunks.Insert(rethinkChunkDoc{
+		id:   key,
+		data: data,
+	}).RunWrite(l.session)
 	d.Chk.NoError(err)
-	var result interface{}
-	err = cursor.One(&result)
-	d.Chk.NoError(err)
-	// TODO: do something with the result?
 	l.putCount++
 	l.putBytes += int64(len(data))
 }
 
-func (l *internalRethinkStore) putBatch(b *Rethink.Batch, numBytes int) {
-	err := l.db.Write(b, nil)
-	d.Chk.NoError(err)
-	l.putCount += int64(b.Len())
-	l.putBytes += int64(numBytes)
-}
+// Not currently needed. See TODO for PutMany...
+
+// func (l *internalRethinkStore) putBatch(b *Rethink.Batch, numBytes int) {
+// 	err := l.db.Write(b, nil)
+// 	d.Chk.NoError(err)
+// 	l.putCount += int64(b.Len())
+// 	l.putBytes += int64(numBytes)
+// }
 
 func (l *internalRethinkStore) Close() error {
 	err := l.session.Close()
@@ -308,7 +324,7 @@ func (l *internalRethinkStore) Close() error {
 }
 
 func NewRethinkStoreFactory(url, db string, dumpStats bool) Factory {
-	return &RethinkStoreFactory{url, db, dumpStats}
+	return &RethinkStoreFactory{url, db, dumpStats, newRethinkBackingStore(url, db, dumpStats)}
 }
 
 func NewRethinkStoreFactoryUseFlags(url, db string) Factory {
@@ -316,10 +332,10 @@ func NewRethinkStoreFactoryUseFlags(url, db string) Factory {
 }
 
 type RethinkStoreFactory struct {
-	url            string
-   table          string
-	dumpStats      bool
-	store          *internalRethinkStore
+	url       string
+	db        string
+	dumpStats bool
+	store     *internalRethinkStore
 }
 
 func (f *RethinkStoreFactory) CreateStore(ns string) ChunkStore {
