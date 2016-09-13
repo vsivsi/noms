@@ -18,6 +18,8 @@ import (
 
 const (
 	rethinkSysTable         = "sys"
+	rethinkRootKeyConst     = "/root"
+	rethinkVersionKeyConst  = "/vers"
 	rethinkChunkTable       = "chunks"
 	rethinkChunkPrefixConst = "/chunk/"
 )
@@ -69,8 +71,8 @@ func newRethinkStore(store *internalRethinkStore, ns []byte, closeBackingStore b
 	}
 	return &RethinkStore{
 		internalRethinkStore: store,
-		rootKey:              []byte(""),
-		versionKey:           []byte(""),
+		rootKey:              copyNsAndAppend(rethinkRootKeyConst),
+		versionKey:           copyNsAndAppend(rethinkVersionKeyConst),
 		chunkPrefix:          copyNsAndAppend(rethinkChunkPrefixConst),
 		closeBackingStore:    closeBackingStore,
 	}
@@ -213,12 +215,15 @@ func newRethinkBackingStore(url, db string, dumpStats bool) *internalRethinkStor
 func (l *internalRethinkStore) rootByKey(key []byte) hash.Hash {
 	cursor, err := l.sys.Get(key).Run(l.session)
 	d.Chk.NoError(err)
-	var doc rethinkRootDoc
-	if cursor.Next(&doc) {
-		return hash.Parse(string(doc.Root))
-	} else {
-		d.Chk.NoError(cursor.Err())
+	if cursor.IsNil() {
+		fmt.Println("Empty Root: ", key)
 		return hash.Hash{}
+	} else {
+		var doc rethinkRootDoc
+		fmt.Println("Non-Empty Root: ", key)
+		err = cursor.One(&doc)
+		d.Chk.NoError(err)
+		return hash.Parse(string(doc.Root))
 	}
 }
 
@@ -226,7 +231,7 @@ func (l *internalRethinkStore) updateRootByKey(key []byte, current, last hash.Ha
 	// TODO: do something with the response below?
 	_, err := l.sys.Get(key).Replace(
 		r.Branch(
-			r.Row.IsEmpty().Or(r.Row.Field("Root").Eq([]byte(last.String()))),
+			r.Row.Eq(nil).Or(r.Row.Field("Root").Eq([]byte(last.String()))),
 			r.Expr(rethinkRootDoc{
 				ID:   key,
 				Root: []byte(current.String()),
@@ -243,15 +248,15 @@ func (l *internalRethinkStore) getByKey(key []byte, ref hash.Hash) Chunk {
 	l.getCount++
 
 	if cursor.IsNil() {
-      return EmptyChunk
-   } else {
-      var doc rethinkChunkDoc
-      err = cursor.One(&doc)
+		return EmptyChunk
+	} else {
+		var doc rethinkChunkDoc
+		err = cursor.One(&doc)
 		fmt.Println("Doc! ", doc.ID, len(doc.Data))
 		data, err := snappy.Decode(nil, doc.Data)
 		d.Chk.NoError(err)
 		return NewChunkWithHash(ref, data)
-   }
+	}
 
 	//
 	// var doc rethinkChunkDoc
@@ -293,7 +298,7 @@ func (l *internalRethinkStore) setVersByKey(key []byte) {
 	// TODO: do something with the response below?
 	_, err := l.sys.Get(key).Replace(
 		r.Branch(
-			r.Row.IsEmpty(),
+			r.Row.Eq(nil),
 			r.Expr(
 				rethinkVersionDoc{
 					ID:      key,
@@ -307,7 +312,7 @@ func (l *internalRethinkStore) setVersByKey(key []byte) {
 func (l *internalRethinkStore) putByKey(key []byte, c Chunk) {
 	data := snappy.Encode(nil, c.Data())
 	// TODO: do something with the response below?
-	_, err := l.chunks.Insert(rethinkChunkDoc{
+	_, err := l.chunks.Get(key).Replace(rethinkChunkDoc{
 		ID:   key,
 		Data: data,
 	}).RunWrite(l.session)
