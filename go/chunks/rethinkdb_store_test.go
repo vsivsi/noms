@@ -6,8 +6,6 @@ package chunks
 
 import (
 	"bytes"
-	"io/ioutil"
-	"os"
 	"testing"
 
 	"github.com/attic-labs/testify/suite"
@@ -20,14 +18,14 @@ func TestRethinkStoreTestSuite(t *testing.T) {
 type RethinkStoreTestSuite struct {
 	ChunkStoreTestSuite
 	factory Factory
-	dir     string
+	url     string
+	db      string
 }
 
 func (suite *RethinkStoreTestSuite) SetupTest() {
-	var err error
-	suite.dir, err = ioutil.TempDir(os.TempDir(), "")
-	suite.NoError(err)
-	suite.factory = NewRethinkStoreFactory(suite.dir, "test", false)
+	suite.url = "localhost"
+	suite.db = "gotest"
+	suite.factory = NewRethinkStoreFactory(suite.url, suite.db, false)
 	store := suite.factory.CreateStore("name").(*RethinkStore)
 	suite.putCountFn = func() int {
 		return int(store.putCount)
@@ -39,7 +37,6 @@ func (suite *RethinkStoreTestSuite) SetupTest() {
 func (suite *RethinkStoreTestSuite) TearDownTest() {
 	suite.Store.Close()
 	suite.factory.Shutter()
-	os.Remove(suite.dir)
 }
 
 func (suite *RethinkStoreTestSuite) TestReservedKeys() {

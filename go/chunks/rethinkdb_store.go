@@ -23,18 +23,18 @@ const (
 )
 
 type rethinkVersionDoc struct {
-	id      []byte
-	version string
+	ID      []byte `gorethink:"id"`
+	Version []byte `gorethink:"Version"`
 }
 
 type rethinkRootDoc struct {
-	id   []byte
-	root []byte
+	ID   []byte `gorethink:"id"`
+	Root []byte `gorethink:"Root"`
 }
 
 type rethinkChunkDoc struct {
-	id   []byte
-	data []byte
+	ID   []byte `gorethink:"id"`
+	Data []byte `gorethink:"Data"`
 }
 
 type RethinkDBStoreFlags struct {
@@ -215,7 +215,7 @@ func (l *internalRethinkStore) rootByKey(key []byte) hash.Hash {
 	d.Chk.NoError(err)
 	var doc rethinkRootDoc
 	if cursor.Next(&doc) {
-		return hash.Parse(string(doc.root))
+		return hash.Parse(string(doc.Root))
 	} else {
 		d.Chk.NoError(cursor.Err())
 		return hash.Hash{}
@@ -226,10 +226,10 @@ func (l *internalRethinkStore) updateRootByKey(key []byte, current, last hash.Ha
 	// TODO: do something with the response below?
 	_, err := l.sys.Get(key).Replace(
 		r.Branch(
-			r.Row.IsEmpty().Or(r.Row.Field("root").Eq([]byte(last.String()))),
+			r.Row.IsEmpty().Or(r.Row.Field("Root").Eq([]byte(last.String()))),
 			r.Expr(rethinkRootDoc{
-				id:   key,
-				root: []byte(current.String()),
+				ID:   key,
+				Root: []byte(current.String()),
 			}),
 			r.Row),
 		r.ReplaceOpts{Durability: "hard", ReturnChanges: true}).RunWrite(l.session)
@@ -241,15 +241,29 @@ func (l *internalRethinkStore) getByKey(key []byte, ref hash.Hash) Chunk {
 	cursor, err := l.chunks.Get(key).Run(l.session)
 	d.Chk.NoError(err)
 	l.getCount++
-	var doc rethinkChunkDoc
-	if cursor.Next(&doc) {
-		data, err := snappy.Decode(nil, doc.data)
+
+	if cursor.IsNil() {
+      return EmptyChunk
+   } else {
+      var doc rethinkChunkDoc
+      err = cursor.One(&doc)
+		fmt.Println("Doc! ", doc.ID, len(doc.Data))
+		data, err := snappy.Decode(nil, doc.Data)
 		d.Chk.NoError(err)
 		return NewChunkWithHash(ref, data)
-	} else {
-		d.Chk.NoError(cursor.Err())
-		return EmptyChunk
-	}
+   }
+
+	//
+	// var doc rethinkChunkDoc
+	// if cursor.Next(&doc) {
+	// 	fmt.Println("Doc! ", doc.ID, len(doc.Data))
+	// 	data, err := snappy.Decode(nil, doc.Data)
+	// 	d.Chk.NoError(err)
+	// 	return NewChunkWithHash(ref, data)
+	// } else {
+	// 	d.Chk.NoError(cursor.Err())
+	// 	return EmptyChunk
+	// }
 }
 
 func (l *internalRethinkStore) hasByKey(key []byte) bool {
@@ -264,7 +278,7 @@ func (l *internalRethinkStore) hasByKey(key []byte) bool {
 
 func (l *internalRethinkStore) versByKey(key []byte) string {
 	var res string
-	cursor, err := l.sys.Get(key).Field("version").Run(l.session)
+	cursor, err := l.sys.Get(key).Field("Version").Run(l.session)
 	defer cursor.Close()
 	d.Chk.NoError(err)
 	if cursor.Next(&res) {
@@ -282,8 +296,8 @@ func (l *internalRethinkStore) setVersByKey(key []byte) {
 			r.Row.IsEmpty(),
 			r.Expr(
 				rethinkVersionDoc{
-					id:      key,
-					version: constants.NomsVersion,
+					ID:      key,
+					Version: []byte(constants.NomsVersion),
 				}),
 			r.Row,
 		)).RunWrite(l.session)
@@ -294,8 +308,8 @@ func (l *internalRethinkStore) putByKey(key []byte, c Chunk) {
 	data := snappy.Encode(nil, c.Data())
 	// TODO: do something with the response below?
 	_, err := l.chunks.Insert(rethinkChunkDoc{
-		id:   key,
-		data: data,
+		ID:   key,
+		Data: data,
 	}).RunWrite(l.session)
 	d.Chk.NoError(err)
 	l.putCount++
