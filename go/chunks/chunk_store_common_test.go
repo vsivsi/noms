@@ -9,6 +9,7 @@ import (
 
 	"github.com/attic-labs/noms/go/constants"
 	"github.com/attic-labs/noms/go/hash"
+	"fmt"
 )
 
 type ChunkStoreTestSuite struct {
@@ -18,6 +19,7 @@ type ChunkStoreTestSuite struct {
 }
 
 func (suite *ChunkStoreTestSuite) TestChunkStorePut() {
+	fmt.Println("============ BEGIN TestChunkStorePut")
 	input := "abc"
 	c := NewChunk([]byte(input))
 	suite.Store.Put(c)
@@ -44,9 +46,11 @@ func (suite *ChunkStoreTestSuite) TestChunkStorePut() {
 	if suite.putCountFn != nil {
 		suite.Equal(2, suite.putCountFn())
 	}
+	fmt.Println("============ END TestChunkStorePut")
 }
 
 func (suite *ChunkStoreTestSuite) TestChunkStorePutMany() {
+	fmt.Println("============ BEGIN TestChunkStorePutMany")
 	input1, input2 := "abc", "def"
 	c1, c2 := NewChunk([]byte(input1)), NewChunk([]byte(input2))
 	suite.Store.PutMany([]Chunk{c1, c2})
@@ -59,9 +63,11 @@ func (suite *ChunkStoreTestSuite) TestChunkStorePutMany() {
 	if suite.putCountFn != nil {
 		suite.Equal(2, suite.putCountFn())
 	}
+	fmt.Println("============ END TestChunkStorePutMany")
 }
 
 func (suite *ChunkStoreTestSuite) TestChunkStoreRoot() {
+	fmt.Println("============ BEGIN TestChunkStoreRoot")
 	oldRoot := suite.Store.Root()
 	suite.True(oldRoot.IsEmpty())
 
@@ -75,19 +81,24 @@ func (suite *ChunkStoreTestSuite) TestChunkStoreRoot() {
 	// Now do a valid root update
 	result = suite.Store.UpdateRoot(newRoot, oldRoot)
 	suite.True(result)
+	fmt.Println("============ END TestChunkStoreRoot")
 }
 
 func (suite *ChunkStoreTestSuite) TestChunkStoreGetNonExisting() {
+	fmt.Println("============ BEGIN TestChunkStoreGetNonExisting")
 	h := hash.Parse("11111111111111111111111111111111")
 	c := suite.Store.Get(h)
 	suite.True(c.IsEmpty())
+	fmt.Println("============ END TestChunkStoreGetNonExisting")
 }
 
 func (suite *ChunkStoreTestSuite) TestChunkStoreVersion() {
+	fmt.Println("============ BEGIN TestChunkStoreVersion")
 	oldRoot := suite.Store.Root()
 	suite.True(oldRoot.IsEmpty())
 	newRoot := hash.Parse("11111222223333344444555556666677")
 	suite.True(suite.Store.UpdateRoot(newRoot, oldRoot))
 
 	suite.Equal(constants.NomsVersion, suite.Store.Version())
+	fmt.Println("============ END TestChunkStoreVersion")
 }
