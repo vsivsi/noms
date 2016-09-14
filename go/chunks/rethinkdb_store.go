@@ -237,18 +237,32 @@ func (l *internalRethinkStore) rootByKey(key []byte) hash.Hash {
 }
 
 func (l *internalRethinkStore) updateRootByKey(key []byte, current, last hash.Hash) bool {
-	// TODO: do something with the response below?
-	_, err := l.sys.Get(key).Replace(
-		r.Branch(
-			r.Row.Eq(nil).Or(r.Row.Field("Root").Eq([]byte(last.String()))),
-			r.Expr(rethinkRootDoc{
-				ID:   key,
-				Root: []byte(current.String()),
-			}),
-			r.Row),
-		r.ReplaceOpts{Durability: "hard", ReturnChanges: true}).RunWrite(l.session)
+
+	emptyRoot := rethinkRootDoc{
+		ID:   key,
+		Root: []byte(hash.Hash{}.String())}
+
+	proposedRoot := rethinkRootDoc{
+		ID:   key,
+		Root: []byte(current.String()),
+	}
+
+	result, err := l.sys.Get(key).Replace(
+		r.Row.Default(emptyRoot).Field("Root").Eq([]byte(last.String())).Branch(
+			proposedRoot,
+			r.Row.Eq(nil).Branch(
+				nil,
+				r.Row,
+			),
+		),
+		r.ReplaceOpts{Durability: "hard"}).RunWrite(l.session)
+
 	d.Chk.NoError(err)
-	return true
+	fmt.Println(result)
+	if result.Replaced == 1 || result.Inserted == 1 {
+		return true
+	}
+	return false
 }
 
 func (l *internalRethinkStore) getByKey(key []byte, ref hash.Hash) Chunk {
