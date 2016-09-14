@@ -49,7 +49,7 @@ func (suite *RethinkStoreTestSuite) TestReservedKeys() {
 	// Results in both f and g being [1, 2, 3, 4, 5, 6]
 	// This was happening to us here, so ldb.chunkPrefix was "/chunk/" and ldb.rootKey was "/chun" instead of "/root"
 	l := suite.factory.CreateStore("").(*RethinkStore)
-	// suite.True(bytes.HasSuffix(l.rootKey, []byte(rootKeyConst)))
-	// suite.True(bytes.HasSuffix(l.versionKey, []byte(versionKeyConst)))
+	suite.True(bytes.HasSuffix(l.rootKey, []byte(rethinkRootKeyConst)))
+	suite.True(bytes.HasSuffix(l.versionKey, []byte(rethinkVersionKeyConst)))
 	suite.True(bytes.HasSuffix(l.chunkPrefix, []byte(rethinkChunkPrefixConst)))
 }

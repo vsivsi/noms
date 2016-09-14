@@ -216,11 +216,11 @@ func (l *internalRethinkStore) rootByKey(key []byte) hash.Hash {
 	cursor, err := l.sys.Get(key).Run(l.session)
 	d.Chk.NoError(err)
 	if cursor.IsNil() {
-		fmt.Println("Empty Root: ", key)
+		fmt.Println("Empty Root: ", string(key))
 		return hash.Hash{}
 	} else {
 		var doc rethinkRootDoc
-		fmt.Println("Non-Empty Root: ", key)
+		fmt.Println("Non-Empty Root: ", string(key))
 		err = cursor.One(&doc)
 		d.Chk.NoError(err)
 		return hash.Parse(string(doc.Root))
