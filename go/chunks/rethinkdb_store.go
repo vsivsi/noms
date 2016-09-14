@@ -280,18 +280,6 @@ func (l *internalRethinkStore) getByKey(key []byte, ref hash.Hash) Chunk {
 		fmt.Printf("Doc! %x %d %d %s\n", doc.ID, len(doc.Data), len(data), string(data))
 		return NewChunkWithHash(ref, data)
 	}
-
-	//
-	// var doc rethinkChunkDoc
-	// if cursor.Next(&doc) {
-	// 	fmt.Println("Doc! ", doc.ID, len(doc.Data))
-	// 	data, err := snappy.Decode(nil, doc.Data)
-	// 	d.Chk.NoError(err)
-	// 	return NewChunkWithHash(ref, data)
-	// } else {
-	// 	d.Chk.NoError(cursor.Err())
-	// 	return EmptyChunk
-	// }
 }
 
 func (l *internalRethinkStore) hasByKey(key []byte) bool {
@@ -305,12 +293,12 @@ func (l *internalRethinkStore) hasByKey(key []byte) bool {
 }
 
 func (l *internalRethinkStore) versByKey(key []byte) string {
-	var res string
+	var res []byte
 	cursor, err := l.sys.Get(key).Field("Version").Run(l.session)
 	defer cursor.Close()
 	d.Chk.NoError(err)
 	if cursor.Next(&res) {
-		return res
+		return string(res)
 	} else {
 		d.Chk.NoError(cursor.Err())
 		return constants.NomsVersion
