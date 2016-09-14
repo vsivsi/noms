@@ -89,13 +89,17 @@ type RethinkStore struct {
 
 func (l *RethinkStore) Root() hash.Hash {
 	d.Chk.True(l.internalRethinkStore != nil, "Cannot use RethinkStore after Close().")
-	return l.rootByKey(l.rootKey)
+	root := l.rootByKey(l.rootKey)
+	fmt.Println("Root called: ", root)
+	return root
 }
 
 func (l *RethinkStore) UpdateRoot(current, last hash.Hash) bool {
 	d.Chk.True(l.internalRethinkStore != nil, "Cannot use RethinkStore after Close().")
 	l.versionSetOnce.Do(l.setVersIfUnset)
-	return l.updateRootByKey(l.rootKey, current, last)
+	result := l.updateRootByKey(l.rootKey, current, last)
+	fmt.Printf("Update root: %x %s %s %t\n", string(l.rootKey), current, last, result)
+	return result
 }
 
 func (l *RethinkStore) Get(ref hash.Hash) Chunk {
@@ -145,6 +149,11 @@ func (l *RethinkStore) Close() error {
 	return nil
 }
 
+func (l *RethinkStore) _Teardown() error {
+	l.internalRethinkStore.Teardown()
+	return l.Close()
+}
+
 func (l *RethinkStore) toChunkKey(r hash.Hash) []byte {
 	digest := r.DigestSlice()
 	out := make([]byte, len(l.chunkPrefix), len(l.chunkPrefix)+len(digest))
@@ -184,14 +193,14 @@ func newRethinkBackingStore(url, db string, dumpStats bool) *internalRethinkStor
 	_, err = r.Branch(
 		r.DBList().Contains(db),
 		r.Expr(map[string]interface{}{"dbs_created": 0}),
-		r.DBCreate(db)).Run(session)
+		r.DBCreate(db)).RunWrite(session)
 	d.Chk.NoError(err, "conditionally creating requested DB %s in internalRethinkStore", db)
 
 	// Create system table if it doesn't exist
 	_, err = r.Branch(
 		r.TableList().Contains(rethinkSysTable),
 		r.Expr(map[string]interface{}{"tables_created": 0}),
-		r.TableCreate(rethinkSysTable)).Run(session)
+		r.TableCreate(rethinkSysTable)).RunWrite(session)
 
 	d.Chk.NoError(err, "conditionally creating system table %s in internalRethinkStore", rethinkSysTable)
 
@@ -199,7 +208,7 @@ func newRethinkBackingStore(url, db string, dumpStats bool) *internalRethinkStor
 	_, err = r.Branch(
 		r.TableList().Contains(rethinkChunkTable),
 		r.Expr(map[string]interface{}{"tables_created": 0}),
-		r.TableCreate(rethinkChunkTable)).Run(session)
+		r.TableCreate(rethinkChunkTable)).RunWrite(session)
 
 	d.Chk.NoError(err, "conditionally creating chunk table %s in internalRethinkStore", rethinkChunkTable)
 
@@ -220,9 +229,9 @@ func (l *internalRethinkStore) rootByKey(key []byte) hash.Hash {
 		return hash.Hash{}
 	} else {
 		var doc rethinkRootDoc
-		fmt.Println("Non-Empty Root: ", string(key))
 		err = cursor.One(&doc)
 		d.Chk.NoError(err)
+		fmt.Println("Non-Empty Root: ", string(key), string(doc.Root))
 		return hash.Parse(string(doc.Root))
 	}
 }
@@ -252,9 +261,9 @@ func (l *internalRethinkStore) getByKey(key []byte, ref hash.Hash) Chunk {
 	} else {
 		var doc rethinkChunkDoc
 		err = cursor.One(&doc)
-		fmt.Println("Doc! ", doc.ID, len(doc.Data))
 		data, err := snappy.Decode(nil, doc.Data)
 		d.Chk.NoError(err)
+		fmt.Printf("Doc! %x %d %d %s\n", doc.ID, len(doc.Data), len(data), string(data))
 		return NewChunkWithHash(ref, data)
 	}
 
@@ -340,6 +349,13 @@ func (l *internalRethinkStore) Close() error {
 		fmt.Println("Average PutSize: ", l.putBytes/l.putCount)
 	}
 	return err
+}
+
+func (l *internalRethinkStore) Teardown() {
+	// Delete DB if it exists
+	_, err := r.DBDrop(l.db).RunWrite(l.session)
+	d.Chk.NoError(err, "tearing down rethinkDB %s in internalRethinkStore", l.db)
+	return
 }
 
 func NewRethinkStoreFactory(url, db string, dumpStats bool) Factory {
