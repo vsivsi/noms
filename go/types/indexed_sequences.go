@@ -59,22 +59,6 @@ func (ims indexedMetaSequence) getCompareFn(other sequence) compareFn {
 	}
 }
 
-func newCursorAtIndex(seq indexedSequence, idx uint64) *sequenceCursor {
-	var cur *sequenceCursor
-	for {
-		cur = newSequenceCursor(cur, seq, 0)
-		idx = idx - advanceCursorToOffset(cur, idx)
-		cs := cur.getChildSequence()
-		if cs == nil {
-			break
-		}
-		seq = cs.(indexedSequence)
-	}
-
-	d.Chk.True(cur != nil)
-	return cur
-}
-
 func advanceCursorToOffset(cur *sequenceCursor, idx uint64) uint64 {
 	seq := cur.seq.(indexedSequence)
 	cur.idx = sort.Search(seq.seqLen(), func(i int) bool {
@@ -108,7 +92,7 @@ func newIndexedMetaSequenceChunkFn(kind NomsKind, source ValueReader) makeChunkF
 		if kind == ListKind {
 			col = newList(newListMetaSequence(tuples, source))
 		} else {
-			d.Chk.True(BlobKind == kind)
+			d.PanicIfFalse(BlobKind == kind)
 			col = newBlob(newBlobMetaSequence(tuples, source))
 		}
 		return col, orderedKeyFromSum(tuples), numLeaves
