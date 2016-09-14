@@ -20,23 +20,23 @@ type RethinkStoreTestSuite struct {
 	factory Factory
 	url     string
 	db      string
-	*RethinkStore
 }
 
 func (suite *RethinkStoreTestSuite) SetupTest() {
 	suite.url = "localhost"
 	suite.db = "gotest"
 	suite.factory = NewRethinkStoreFactory(suite.url, suite.db, false)
-	suite.RethinkStore = suite.factory.CreateStore("name").(*RethinkStore)
+	store := suite.factory.CreateStore("name").(*RethinkStore)
 	suite.putCountFn = func() int {
-		return int(suite.RethinkStore.putCount)
+		return int(store.putCount)
 	}
 
-	suite.Store = suite.RethinkStore
+	suite.Store = store
 }
 
 func (suite *RethinkStoreTestSuite) TearDownTest() {
-	suite.RethinkStore._Teardown()
+	l := suite.Store.(*RethinkStore)
+	l._Teardown()
 	suite.factory.Shutter()
 }
 
