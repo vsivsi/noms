@@ -19,7 +19,7 @@ import (
 const (
 	rethinkSysTable         = "sys"
 	rethinkChunkTable       = "chunks"
-	rethinkRootKeyConst		= "/root"
+	rethinkRootKeyConst     = "/root"
 	rethinkVersionKeyConst  = "/vers"
 	rethinkChunkPrefixConst = "/chunk/"
 )
