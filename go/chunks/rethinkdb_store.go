@@ -248,10 +248,7 @@ func (l *internalRethinkStore) updateRootByKey(key []byte, current, last hash.Ha
 	result, err := l.sys.Get(key).Replace(
 		r.Row.Default(emptyRoot).Field("Root").Eq([]byte(last.String())).Branch(
 			proposedRoot,
-			r.Row.Eq(nil).Branch(
-				nil,
-				r.Row,
-			),
+			r.Row,
 		),
 		r.ReplaceOpts{Durability: "hard"}).RunWrite(l.session)
 
