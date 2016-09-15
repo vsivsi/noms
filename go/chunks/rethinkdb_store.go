@@ -18,10 +18,18 @@ import (
 
 const (
 	rethinkSysTable         = "sys"
-	rethinkRootKeyConst     = "/root"
-	rethinkVersionKeyConst  = "/vers"
 	rethinkChunkTable       = "chunks"
+	rethinkRootKeyConst		= "/root"
+	rethinkVersionKeyConst  = "/vers"
 	rethinkChunkPrefixConst = "/chunk/"
+)
+
+var (
+	rethinkFlags           = RethinkDBStoreFlags{false}
+	rethinkFlagsRegistered = false
+	rethinkRootKey         = []byte(rethinkRootKeyConst)
+	rethinkVersionKey      = []byte(rethinkVersionKeyConst)
+	rethinkChunkPrefix     = []byte(rethinkChunkPrefixConst)
 )
 
 type rethinkVersionDoc struct {
@@ -43,11 +51,6 @@ type RethinkDBStoreFlags struct {
 	dumpStats bool
 }
 
-var (
-	rethinkFlags           = RethinkDBStoreFlags{false}
-	rethinkFlagsRegistered = false
-)
-
 func RegisterRethinkDBFlags(flags *flag.FlagSet) {
 	if !rethinkFlagsRegistered {
 		rethinkFlagsRegistered = true
@@ -64,16 +67,11 @@ func NewRethinkStore(url, db, ns string, dumpStats bool) *RethinkStore {
 }
 
 func newRethinkStore(store *internalRethinkStore, ns []byte, closeBackingStore bool) *RethinkStore {
-	copyNsAndAppend := func(suffix string) (out []byte) {
-		out = make([]byte, len(ns)+len(suffix))
-		copy(out[copy(out, ns):], []byte(suffix))
-		return
-	}
 	return &RethinkStore{
 		internalRethinkStore: store,
-		rootKey:              copyNsAndAppend(rethinkRootKeyConst),
-		versionKey:           copyNsAndAppend(rethinkVersionKeyConst),
-		chunkPrefix:          copyNsAndAppend(rethinkChunkPrefixConst),
+		rootKey:              append(rethinkRootKey, ns...),
+		versionKey:           append(rethinkVersionKey, ns...),
+		chunkPrefix:          append(rethinkChunkPrefix, ns...),
 		closeBackingStore:    closeBackingStore,
 	}
 }
