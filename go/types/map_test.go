@@ -226,7 +226,7 @@ func (suite *mapTestSuite) createStreamingMap(vs *ValueStore) {
 		kvChan <- entry.value
 	}
 	close(kvChan)
-	suite.True(suite.validate(<-mapChan))
+	suite.True(suite.validate(<-mapChan), "map not valid")
 }
 
 func (suite *mapTestSuite) TestStreamingMap() {
@@ -1145,7 +1145,7 @@ func TestMapTypeAfterMutations(t *testing.T) {
 	}
 
 	test(10, mapLeafSequence{})
-	test(1000, orderedMetaSequence{})
+	test(1000, metaSequence{})
 }
 
 func TestCompoundMapWithValuesOfEveryType(t *testing.T) {
