@@ -89,6 +89,13 @@ func parseDatabaseSpec(spec string) (databaseSpec, error) {
 		return databaseSpec{Protocol: "ldb", Path: path}, nil
 	}
 
+	rethinkDatabaseSpec := func(path string) (databaseSpec, error) {
+		if len(path) == 0 {
+			return databaseSpec{}, fmt.Errorf("Empty file system path")
+		}
+		return databaseSpec{Protocol: "rethink", Path: path}, nil
+	}
+
 	parts := strings.SplitN(spec, ":", 2) // [protocol] [, path]?
 	protocol := parts[0]
 
@@ -117,6 +124,9 @@ func parseDatabaseSpec(spec string) (databaseSpec, error) {
 
 	case "mem":
 		return databaseSpec{}, fmt.Errorf(`In-memory database must be specified as "mem", not "mem:%s"`, path)
+
+	case "rethink":
+		return rethinkDatabaseSpec(path)
 
 	default:
 		return databaseSpec{}, fmt.Errorf("Invalid database protocol: %s", spec)
@@ -180,6 +190,10 @@ func (spec databaseSpec) Database() (ds datas.Database, err error) {
 		}))
 	case "mem":
 		ds = datas.NewDatabase(chunks.NewMemoryStore())
+	case "rethink":
+		err = d.Unwrap(d.Try(func() {
+			ds = datas.NewDatabase(getRethinkStore(spec.Path))
+		}))
 	default:
 		err = fmt.Errorf("Invalid path prototocol: %s", spec.Protocol)
 	}
@@ -241,6 +255,19 @@ func CreateHashSpecString(protocol, path string, h hash.Hash) string {
 }
 
 func getLDBStore(path string) chunks.ChunkStore {
+	if store, ok := ldbStores[path]; ok {
+		store.AddRef()
+		return store
+	}
+
+	store := newRefCountingLdbStore(path, func() {
+		delete(ldbStores, path)
+	})
+	ldbStores[path] = store
+	return store
+}
+
+func getRethinkStore(path string) chunks.ChunkStore {
 	if store, ok := ldbStores[path]; ok {
 		store.AddRef()
 		return store
