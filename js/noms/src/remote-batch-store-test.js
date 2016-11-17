@@ -1,17 +1,17 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
 
+// @flow
+
 import {suite, test} from 'mocha';
 import {assert} from 'chai';
-import {makeTestingRemoteBatchStore} from './remote-batch-store.js';
+import makeRemoteBatchStoreFake from './remote-batch-store-fake.js';
 import {encodeValue} from './codec.js';
 
 suite('BatchStore', () => {
   test('get after schedulePut works immediately', async () => {
-    const bs = makeTestingRemoteBatchStore();
+    const bs = makeRemoteBatchStoreFake();
     const input = 'abc';
 
     const c = encodeValue(input);
@@ -23,7 +23,7 @@ suite('BatchStore', () => {
   });
 
   test('get after schedulePut works after flush', async () => {
-    const bs = makeTestingRemoteBatchStore();
+    const bs = makeRemoteBatchStoreFake();
     const input = 'abc';
 
     const c = encodeValue(input);

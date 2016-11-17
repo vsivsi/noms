@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Sequence, {SequenceCursor} from './sequence.js';
 import search from './binary-search.js';
@@ -19,7 +19,7 @@ export class IndexedSequence<T> extends Sequence<T> {
 
   getCompareFn(other: IndexedSequence<any>): EqualsFn {
     return (idx: number, otherIdx: number) =>
-      // $FlowIssue
+      // $FlowIssue: Does not realize that these are Values.
       equals(this.items[idx], other.items[otherIdx]);
   }
 

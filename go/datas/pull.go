@@ -22,7 +22,10 @@ type PullProgress struct {
 
 const bytesWrittenSampleRate = .10
 
-// Pull objects that descends from sourceRef from srcDB to sinkDB. sinkHeadRef should point to a Commit (in sinkDB) that's an ancestor of sourceRef. This allows the algorithm to figure out which portions of data are already present in sinkDB and skip copying them.
+// Pull objects that descend from sourceRef from srcDB to sinkDB. sinkHeadRef
+// should point to a Commit (in sinkDB) that's an ancestor of sourceRef. This
+// allows the algorithm to figure out which portions of data are already
+// present in sinkDB and skip copying them.
 func Pull(srcDB, sinkDB Database, sourceRef, sinkHeadRef types.Ref, concurrency int, progressCh chan PullProgress) {
 	srcQ, sinkQ := &types.RefByHeight{sourceRef}, &types.RefByHeight{sinkHeadRef}
 
@@ -69,11 +72,11 @@ func Pull(srcDB, sinkDB Database, sourceRef, sinkHeadRef types.Ref, concurrency 
 			for {
 				select {
 				case srcRef := <-srcChan:
-				// Hook in here to estimate the bytes written to disk during pull (since
-				// srcChan contains all chunks to be written to the sink). Rather than measuring
-				// the serialized, compressed bytes of each chunk, we take a 10% sample.
-				// There's no immediately observable performance benefit to sampling here, but there's
-				// also no appreciable loss in accuracy, so we'll keep it around.
+					// Hook in here to estimate the bytes written to disk during pull (since
+					// srcChan contains all chunks to be written to the sink). Rather than measuring
+					// the serialized, compressed bytes of each chunk, we take a 10% sample.
+					// There's no immediately observable performance benefit to sampling here, but there's
+					// also no appreciable loss in accuracy, so we'll keep it around.
 					takeSample := rand.Float64() < bytesWrittenSampleRate
 					srcResChan <- traverseSource(srcRef, srcDB, sinkDB, takeSample)
 				case sinkRef := <-sinkChan:
@@ -96,7 +99,7 @@ func Pull(srcDB, sinkDB Database, sourceRef, sinkHeadRef types.Ref, concurrency 
 		if progressCh == nil {
 			return
 		}
-		doneCount, knownCount, approxBytesWritten = doneCount+moreDone, knownCount+moreKnown,  approxBytesWritten+moreApproxBytesWritten
+		doneCount, knownCount, approxBytesWritten = doneCount+moreDone, knownCount+moreKnown, approxBytesWritten+moreApproxBytesWritten
 		progressCh <- PullProgress{doneCount, knownCount + uint64(srcQ.Len()), approxBytesWritten}
 	}
 
@@ -234,13 +237,22 @@ func sendWork(ch chan<- types.Ref, refs types.RefSlice) {
 
 type hintCache map[hash.Hash]hash.Hash
 
+func getChunks(v types.Value) (chunks []types.Ref) {
+	v.WalkRefs(func(ref types.Ref) {
+		chunks = append(chunks, ref)
+	})
+	return
+}
+
 func traverseSource(srcRef types.Ref, srcDB, sinkDB Database, estimateBytesWritten bool) traverseSourceResult {
 	h := srcRef.TargetHash()
 	if !sinkDB.has(h) {
 		srcBS := srcDB.validatingBatchStore()
 		c := srcBS.Get(h)
 		v := types.DecodeValue(c, srcDB)
-		d.PanicIfFalse(v != nil, "Expected decoded chunk to be non-nil.")
+		if v == nil {
+			d.Panic("Expected decoded chunk to be non-nil.")
+		}
 		sinkDB.validatingBatchStore().SchedulePut(c, srcRef.Height(), types.Hints{})
 		bytesWritten := 0
 		if estimateBytesWritten {
@@ -248,7 +260,7 @@ func traverseSource(srcRef types.Ref, srcDB, sinkDB Database, estimateBytesWritt
 			// write size is implementation specific.
 			bytesWritten = len(snappy.Encode(nil, c.Data()))
 		}
-		ts := traverseSourceResult{traverseResult{h, v.Chunks(), len(c.Data())}, bytesWritten}
+		ts := traverseSourceResult{traverseResult{h, getChunks(v), len(c.Data())}, bytesWritten}
 		return ts
 	}
 	return traverseSourceResult{}
@@ -256,7 +268,7 @@ func traverseSource(srcRef types.Ref, srcDB, sinkDB Database, estimateBytesWritt
 
 func traverseSink(sinkRef types.Ref, db Database) traverseResult {
 	if sinkRef.Height() > 1 {
-		return traverseResult{sinkRef.TargetHash(), sinkRef.TargetValue(db).Chunks(), 0}
+		return traverseResult{sinkRef.TargetHash(), getChunks(sinkRef.TargetValue(db)), 0}
 	}
 	return traverseResult{}
 }
@@ -269,7 +281,7 @@ func traverseCommon(comRef, sinkHead types.Ref, db Database) traverseResult {
 		if comRef.Equals(sinkHead) {
 			exclusionSet = commit.Get(ParentsField).(types.Set)
 		}
-		chunks := types.RefSlice(commit.Chunks())
+		chunks := types.RefSlice(getChunks(commit))
 		for i := 0; i < len(chunks); {
 			if exclusionSet.Has(chunks[i]) {
 				end := len(chunks) - 1

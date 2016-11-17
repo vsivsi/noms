@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/attic-labs/noms/go/d"
 	"github.com/attic-labs/noms/go/hash"
@@ -30,8 +31,9 @@ func NewEmptyBlob() Blob {
 
 // BUG 155 - Should provide Write... Maybe even have Blob implement ReadWriteSeeker
 func (b Blob) Reader() io.ReadSeeker {
-	cursor := newCursorAtIndex(b.seq, 0)
-	return &BlobReader{b.seq, cursor, nil, 0}
+	iter := newSequenceIterator(b.seq, 0)
+	return &BlobReader{b.seq, iter, nil, 0}
+
 }
 
 func (b Blob) Splice(idx uint64, deleteCount uint64, data []byte) Blob {
@@ -42,8 +44,7 @@ func (b Blob) Splice(idx uint64, deleteCount uint64, data []byte) Blob {
 	d.PanicIfFalse(idx <= b.Len())
 	d.PanicIfFalse(idx+deleteCount <= b.Len())
 
-	cur := newCursorAtIndex(b.seq, idx)
-	ch := newSequenceChunker(cur, b.seq.valueReader(), nil, makeBlobLeafChunkFn(b.seq.valueReader()), newIndexedMetaSequenceChunkFn(BlobKind, b.seq.valueReader()), hashValueByte)
+	ch := b.newChunker(newCursorAtIndex(b.seq, idx), b.seq.valueReader())
 	for deleteCount > 0 {
 		ch.Skip()
 		deleteCount--
@@ -53,6 +54,20 @@ func (b Blob) Splice(idx uint64, deleteCount uint64, data []byte) Blob {
 		ch.Append(v)
 	}
 	return newBlob(ch.Done())
+}
+
+// Concat returns a new Blob comprised of this joined with other. It only needs
+// to visit the rightmost prolly tree chunks of this Blob, and the leftmost
+// prolly tree chunks of other, so it's efficient.
+func (b Blob) Concat(other Blob) Blob {
+	seq := concat(b.seq, other.seq, func(cur *sequenceCursor, vr ValueReader) *sequenceChunker {
+		return b.newChunker(cur, vr)
+	})
+	return newBlob(seq)
+}
+
+func (b Blob) newChunker(cur *sequenceCursor, vr ValueReader) *sequenceChunker {
+	return newSequenceChunker(cur, vr, nil, makeBlobLeafChunkFn(vr), newIndexedMetaSequenceChunkFn(BlobKind, vr), hashValueByte)
 }
 
 // Collection interface
@@ -89,12 +104,11 @@ func (b Blob) Hash() hash.Hash {
 	return *b.h
 }
 
-func (b Blob) ChildValues() []Value {
-	return []Value{}
+func (b Blob) WalkValues(cb ValueCallback) {
 }
 
-func (b Blob) Chunks() []Ref {
-	return b.seq.Chunks()
+func (b Blob) WalkRefs(cb RefCallback) {
+	b.seq.WalkRefs(cb)
 }
 
 func (b Blob) Type() *Type {
@@ -103,7 +117,7 @@ func (b Blob) Type() *Type {
 
 type BlobReader struct {
 	seq           sequence
-	cursor        *sequenceCursor
+	iter          *sequenceIterator
 	currentReader io.ReadSeeker
 	pos           uint64
 }
@@ -114,11 +128,9 @@ func (cbr *BlobReader) Read(p []byte) (n int, err error) {
 	}
 
 	n, err = cbr.currentReader.Read(p)
-	for i := 0; i < n; i++ {
-		cbr.pos++
-		cbr.cursor.advance()
-	}
-	if err == io.EOF && cbr.cursor.idx < cbr.cursor.seq.seqLen() {
+	cbr.pos += uint64(n)
+	hasMore := cbr.iter.advance(n)
+	if err == io.EOF && hasMore {
 		cbr.currentReader = nil
 		err = nil
 	}
@@ -145,14 +157,16 @@ func (cbr *BlobReader) Seek(offset int64, whence int) (int64, error) {
 	}
 
 	cbr.pos = uint64(abs)
-	cbr.cursor = newCursorAtIndex(cbr.seq, cbr.pos)
+	cbr.iter = newSequenceIterator(cbr.seq, cbr.pos)
 	cbr.currentReader = nil
 	return abs, nil
 }
 
 func (cbr *BlobReader) updateReader() {
-	cbr.currentReader = bytes.NewReader(cbr.cursor.seq.(blobLeafSequence).data)
-	cbr.currentReader.Seek(int64(cbr.cursor.idx), 0)
+	chunk, idx := cbr.iter.chunkAndIndex()
+	data := chunk.(blobLeafSequence).data
+	cbr.currentReader = bytes.NewReader(data)
+	cbr.currentReader.Seek(int64(idx), 0)
 }
 
 func makeBlobLeafChunkFn(vr ValueReader) makeChunkFn {
@@ -172,16 +186,57 @@ func chunkBlobLeaf(vr ValueReader, buff []byte) (Collection, orderedKey, uint64)
 	return blob, orderedKeyFromInt(len(buff)), uint64(len(buff))
 }
 
-func NewBlob(r io.Reader) Blob {
-	return NewStreamingBlob(r, nil)
+// NewBlob creates a Blob by reading from every Reader in rs and concatenating
+// the result. NewBlob uses one goroutine per Reader. Chunks are kept in memory
+// as they're created - to reduce memory pressure and write to disk instead,
+// use NewStreamingBlob with a non-nil reader.
+func NewBlob(rs ...io.Reader) Blob {
+	return readBlobsP(nil, rs...)
 }
 
-func NewStreamingBlob(r io.Reader, vrw ValueReadWriter) Blob {
+// NewStreamingBlob creates a Blob by reading from every Reader in rs and
+// concatenating the result. NewStreamingBlob uses one goroutine per Reader.
+// If vrw is not nil, chunks are written to vrw instead of kept in memory.
+func NewStreamingBlob(vrw ValueReadWriter, rs ...io.Reader) Blob {
+	return readBlobsP(vrw, rs...)
+}
+
+func readBlobsP(vrw ValueReadWriter, rs ...io.Reader) Blob {
+	switch len(rs) {
+	case 0:
+		return NewEmptyBlob()
+	case 1:
+		return readBlob(rs[0], vrw)
+	}
+
+	blobs := make([]Blob, len(rs))
+
+	wg := &sync.WaitGroup{}
+	wg.Add(len(rs))
+
+	for i, r := range rs {
+		i2, r2 := i, r
+		go func() {
+			blobs[i2] = readBlob(r2, vrw)
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+
+	b := blobs[0]
+	for i := 1; i < len(blobs); i++ {
+		b = b.Concat(blobs[i])
+	}
+	return b
+}
+
+func readBlob(r io.Reader, vrw ValueReadWriter) Blob {
 	sc := newEmptySequenceChunker(vrw, vrw, makeBlobLeafChunkFn(nil), newIndexedMetaSequenceChunkFn(BlobKind, nil), func(item sequenceItem, rv *rollingValueHasher) {
 		rv.HashByte(item.(byte))
 	})
 
-	// TODO: The code below is a temporary. It's basically a custom leaf-level chunker for blobs. There are substational perf gains by doing it this way as it avoids the cost of boxing every single byte which is chunked.
+	// TODO: The code below is temporary. It's basically a custom leaf-level chunker for blobs. There are substational perf gains by doing it this way as it avoids the cost of boxing every single byte which is chunked.
 	chunkBuff := [8192]byte{}
 	chunkBytes := chunkBuff[:]
 	rv := newRollingValueHasher()

@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import fs from 'mz/fs';
 import humanize from 'humanize';
@@ -43,12 +43,12 @@ const args = argv
 //   entries: Map<String, Cycle<0> | File>,
 // }
 
-const fileType = makeStructType('File', ['content'], [makeRefType(blobType)]);
-const directoryType = makeStructType('Directory',
-  ['entries'],
-  [
-    makeMapType(stringType, makeUnionType([fileType, makeCycleType(0)])),
-  ]);
+const fileType = makeStructType('File', {
+  content: makeRefType(blobType),
+});
+const directoryType = makeStructType('Directory', {
+  entries: makeMapType(stringType, makeUnionType([fileType, makeCycleType(0)])),
+});
 
 const File = createStructClass(fileType);
 const Directory = createStructClass(directoryType);
@@ -78,16 +78,15 @@ async function main(): Promise<void> {
 
   startTime = Date.now();
 
-  const ds = spec.dataset();
-  const de = await processPath(path, ds.database);
+  const [db, ds] = spec.dataset();
+  const de = await processPath(path, db);
   if (de) {
-    await ds.commit(de);
+    await db.commit(ds, de);
     process.stdout.write('\ndone\n');
   }
-
 }
 
-async function processPath(p: string, store: Database): Promise<void|Directory|File> {
+async function processPath(p: string, store: Database): Promise<void | Directory | File> {
   numFilesFound++;
   const st = await fs.stat(p);
   sizeFilesFound += st.size;

@@ -91,16 +91,14 @@ func (l List) Hash() hash.Hash {
 	return *l.h
 }
 
-func (l List) ChildValues() []Value {
-	values := make([]Value, l.Len())
+func (l List) WalkValues(cb ValueCallback) {
 	l.IterAll(func(v Value, idx uint64) {
-		values[idx] = v
+		cb(v)
 	})
-	return values
 }
 
-func (l List) Chunks() []Ref {
-	return l.seq.Chunks()
+func (l List) WalkRefs(cb RefCallback) {
+	l.seq.WalkRefs(cb)
 }
 
 func (l List) Type() *Type {
@@ -179,9 +177,9 @@ func (l List) Insert(idx uint64, vs ...Value) List {
 	return l.Splice(idx, 0, vs...)
 }
 
-// Concat returns new list comprised of this joined with other. It only needs to
-// visit the rightmost prolly tree chunks of this list, and the leftmost prolly
-// tree chunks of other.
+// Concat returns a new List comprised of this joined with other. It only needs
+// to visit the rightmost prolly tree chunks of this List, and the leftmost
+// prolly tree chunks of other, so it's efficient.
 func (l List) Concat(other List) List {
 	seq := concat(l.seq, other.seq, func(cur *sequenceCursor, vr ValueReader) *sequenceChunker {
 		return l.newChunker(cur, vr)

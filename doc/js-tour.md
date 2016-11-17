@@ -2,6 +2,9 @@
 
 This is a short introduction to using Noms from JavaScript. It should only take a few minutes if you have some familiarity with JavaScript and Node.
 
+During the tour, you can refer to the complete [JavaScript SDK Reference](docs.noms.io/js/) for more information on anything you see.
+
+
 ## Requirements
 
 * [Noms command-line tools](https://github.com/attic-labs/noms#setup)
@@ -51,7 +54,7 @@ See [Spelling in Noms](spelling.md) for more information on database spec string
 Datasets are the main interface you'll use to work with Noms. A dataset is just a named value in the database that you can update:
 
 ```js
-let ds = new noms.Dataset(db, 'people');
+let ds = db.getDataset('people');
 
 // prints: null
 ds.head().then(console.log);
@@ -82,7 +85,7 @@ let data = new noms.List([
 // }>
 console.log(data.type.describe());
 
-ds.commit(data).
+db.commit(ds, data).
   then(r => ds = r);
 ```
 
@@ -117,7 +120,7 @@ struct Commit {
 
 Let's add some more data. Back in Node:
 
-```
+```js
 data.append(noms.newStruct('', {
   given: 'Jon',
   family: 'Snow',
@@ -135,7 +138,7 @@ data.append(noms.newStruct('', {
 // }>
 console.log(data.type.describe());
 
-ds.commit(data).
+db.commit(ds, data).
   then(r => ds = r);
 ```
 
@@ -145,6 +148,9 @@ Datasets are versioned. When you *commit* a new value, you aren't overwriting th
 function printCommit(commit) {
   console.log('list', commit.value.hash.toString(),
       'length:', commit.value.length);
+  if (commit.parents.isEmpty()) {
+    return;
+  }
   commit.parents.first().
     then(r => r.targetValue(db)).
     then(printCommit);

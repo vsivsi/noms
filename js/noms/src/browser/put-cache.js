@@ -1,13 +1,13 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
 
+// @flow
+
 import type Chunk from '../chunk.js';
 import {invariant} from '../assert.js';
 
-type ChunkStream = (cb: (chunk: Chunk) => void) => Promise<void>
+type ChunkStream = (cb: (chunk: Chunk) => void) => Promise<void>;
 type ChunkIndex = Map<string, number>;
 
 /**

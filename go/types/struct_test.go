@@ -10,6 +10,13 @@ import (
 	"github.com/attic-labs/testify/assert"
 )
 
+func getChunks(v Value) (chunks []Ref) {
+	v.WalkRefs(func(r Ref) {
+		chunks = append(chunks, r)
+	})
+	return
+}
+
 func TestGenericStructEquals(t *testing.T) {
 	assert := assert.New(t)
 
@@ -34,8 +41,8 @@ func TestGenericStructChunks(t *testing.T) {
 
 	s1 := NewStructWithType(typ, ValueSlice{NewRef(b)})
 
-	assert.Len(s1.Chunks(), 1)
-	assert.Equal(b.Hash(), s1.Chunks()[0].TargetHash())
+	assert.Len(getChunks(s1), 1)
+	assert.Equal(b.Hash(), getChunks(s1)[0].TargetHash())
 }
 
 func TestGenericStructNew(t *testing.T) {
@@ -66,11 +73,38 @@ func TestGenericStructSet(t *testing.T) {
 	s := NewStruct("S3", StructData{"b": Bool(true), "o": String("hi")})
 	s2 := s.Set("b", Bool(false))
 
-	assert.Panics(func() { s.Set("b", Number(1)) })
-	assert.Panics(func() { s.Set("x", Number(1)) })
-
 	s3 := s2.Set("b", Bool(true))
 	assert.True(s.Equals(s3))
+
+	// Changes the type
+	s4 := s.Set("b", Number(42))
+	assert.True(MakeStructType("S3", []string{"b", "o"}, []*Type{NumberType, StringType}).Equals(s4.Type()))
+
+	// Adds a new field
+	s5 := s.Set("x", Number(42))
+	assert.True(MakeStructType("S3", []string{"b", "o", "x"}, []*Type{BoolType, StringType, NumberType}).Equals(s5.Type()))
+
+	// Subtype
+	s6 := NewStruct("", StructData{"l": NewList(Number(0), Number(1), Bool(false), Bool(true))})
+	s7 := s6.Set("l", NewList(Number(2), Number(3)))
+	assert.True(s6.Type().Equals(s7.Type()))
+}
+
+func TestGenericStructDelete(t *testing.T) {
+	assert := assert.New(t)
+
+	s1 := NewStruct("S", StructData{"b": Bool(true), "o": String("hi")})
+
+	s2 := s1.Delete("notThere")
+	assert.True(s1.Equals(s2))
+
+	s3 := s1.Delete("o")
+	s4 := NewStruct("S", StructData{"b": Bool(true)})
+	assert.True(s3.Equals(s4))
+
+	s5 := s3.Delete("b")
+	s6 := NewStruct("S", StructData{})
+	assert.True(s5.Equals(s6))
 }
 
 func TestStructDiff(t *testing.T) {

@@ -11,6 +11,12 @@ import (
 	"github.com/attic-labs/noms/go/types"
 )
 
+// Policy functors are used to merge two values (a and b) against a common
+// ancestor. All three Values and their must by wholly readable from vrw.
+// Whenever a change is merged, implementations should send a struct{} over
+// progress.
+type Policy func(a, b, ancestor types.Value, vrw types.ValueReadWriter, progress chan struct{}) (merged types.Value, err error)
+
 // ResolveFunc is the type for custom merge-conflict resolution callbacks.
 // When the merge algorithm encounters two non-mergeable changes (aChange and
 // bChange) at the same path, it calls the ResolveFunc passed into ThreeWay().
@@ -21,6 +27,21 @@ import (
 // function should return the appropriate type of change to apply, the new value
 // to be used (if any), and true.
 type ResolveFunc func(aChange, bChange types.DiffChangeType, a, b types.Value, path types.Path) (change types.DiffChangeType, merged types.Value, ok bool)
+
+// None is the no-op ResolveFunc. Any conflict results in a merge failure.
+func None(aChange, bChange types.DiffChangeType, a, b types.Value, path types.Path) (change types.DiffChangeType, merged types.Value, ok bool) {
+	return change, merged, false
+}
+
+// Ours resolves conflicts by preferring changes from the Value currently being committed.
+func Ours(aChange, bChange types.DiffChangeType, a, b types.Value, path types.Path) (change types.DiffChangeType, merged types.Value, ok bool) {
+	return aChange, a, true
+}
+
+// Theirs resolves conflicts by preferring changes in the current HEAD.
+func Theirs(aChange, bChange types.DiffChangeType, a, b types.Value, path types.Path) (change types.DiffChangeType, merged types.Value, ok bool) {
+	return bChange, b, true
+}
 
 // ErrMergeConflict indicates that a merge attempt failed and must be resolved
 // manually for the provided reason.
@@ -36,25 +57,81 @@ func newMergeConflict(format string, args ...interface{}) *ErrMergeConflict {
 	return &ErrMergeConflict{fmt.Sprintf(format, args...)}
 }
 
-// ThreeWay attempts a three-way merge between two candidates and a common
-// ancestor.
-// It considers the three of them recursively, applying some simple rules to
-// identify conflicts:
-//  - If any of the three nodes are different NomsKinds
-//  - If we are dealing with a map:
-//    - same key is both removed and inserted wrt parent: conflict
-//    - same key is inserted wrt parent, but with different values: conflict
-//  - If we are dealing with a struct:
-//    - same field is both removed and inserted wrt parent: conflict
-//    - same field is inserted wrt parent, but with different values: conflict
-//  - If we are dealing with a list:
-//    - same index is both removed and inserted wrt parent: conflict
-//    - same index is inserted wrt parent, but with different values: conflict
-//  - If we are dealing with a set:
-//    - `merged` is essentially union(a, b, parent)
+// Creates a new Policy based on ThreeWay using the provided ResolveFunc.
+func NewThreeWay(resolve ResolveFunc) Policy {
+	return func(a, b, parent types.Value, vrw types.ValueReadWriter, progress chan struct{}) (merged types.Value, err error) {
+		return ThreeWay(a, b, parent, vrw, resolve, progress)
+	}
+}
+
+// ThreeWay attempts a three-way merge between two _candidate_ values that
+// have both changed with respect to a common _parent_ value. The result of
+// the algorithm is a _merged_ value or an error if merging could not be done.
 //
-// All other modifications are allowed.
-// ThreeWay() works on types.List, types.Map, types.Set, and types.Struct.
+// The algorithm works recursively, applying the following rules for each value:
+//
+// - If any of the three values have a different [kind](link): conflict
+// - If the two candidates are identical: the result is that value
+// - If the values are primitives or Blob: conflict
+// - If the values are maps:
+//   - if the same key was inserted or updated in both candidates:
+//     - first run this same algorithm on those two values to attempt to merge them
+//     - if the two merged values are still different: conflict
+//   - if a key was inserted in one candidate and removed in the other: conflict
+// - If the values are structs:
+//   - Same as map, except using field names instead of map keys
+// - If the values are sets:
+//   - Apply the changes from both candidates to the parent to get the result. No conflicts are possible.
+// - If the values are list:
+//   - Apply list-merge (see below)
+//
+// Merge rules for List are a bit more complex than Map, Struct, and Set due
+// to a wider away of potential use patterns. A List might be a de-facto Map
+// with sequential numeric keys, or it might be a sequence of objects where
+// order matters but the caller is unlikely to go back and update the value at
+// a given index. List modifications are expressed in terms of 'splices' (see
+// types/edit_distance.go). Roughly, a splice indicates that some number of
+// elements were added and/or removed at some index in |parent|. In the
+// following example:
+//
+// parent: [a, b, c, d]
+// a:      [b, c, d]
+// b:      [a, b, c, d, e]
+// merged: [b, c, d, e]
+//
+// The difference from parent -> is described by the splice {0, 1}, indicating
+// that 1 element was removed from parent at index 0. The difference from
+// parent -> b is described as {4, 0, e}, indicating that 0 elements were
+// removed at parent's index 4, and the element 'e' was added. Our merge
+// algorithm will successfully merge a and b, because these splices do not
+// overlap; that is, neither one removes the index at which the other
+// operates. As a general rule, the merge algorithm will refuse to merge
+// splices that overlap, as in the following examples:
+//
+// parent: [a, b, c]
+// a:      [a, d, b, c]
+// b:      [a, c]
+// merged: conflict
+//
+// parent: [a, b, c]
+// a:      [a, e, b, c]
+// b:      [a, d, b, c]
+// merged: conflict
+//
+// The splices in the first example are {1, 0, d} (remove 0 elements at index
+// 1 and add 'd') and {1, 1} (remove 1 element at index 1). Since the latter
+// removes the element at which the former adds an element, these splices
+// overlap. Similarly, in the second example, both splices operate at index 1
+// but add different elements. Thus, they also overlap.
+//
+// There is one special case for overlapping splices. If they perform the
+// exact same operation, the algorithm considers them not to be in conflict.
+// E.g.
+//
+// parent: [a, b, c]
+// a:      [a, d, e]
+// b:      [a, d, e]
+// merged: [a, d, e]
 func ThreeWay(a, b, parent types.Value, vrw types.ValueReadWriter, resolve ResolveFunc, progress chan struct{}) (merged types.Value, err error) {
 	describe := func(v types.Value) string {
 		if v != nil {
@@ -70,7 +147,7 @@ func ThreeWay(a, b, parent types.Value, vrw types.ValueReadWriter, resolve Resol
 	}
 
 	if resolve == nil {
-		resolve = defaultResolve
+		resolve = None
 	}
 	m := &merger{vrw, resolve, progress}
 	return m.threeWay(a, b, parent, types.Path{})
@@ -91,10 +168,6 @@ type merger struct {
 	progress chan<- struct{}
 }
 
-func defaultResolve(aChange, bChange types.DiffChangeType, a, b types.Value, p types.Path) (change types.DiffChangeType, merged types.Value, ok bool) {
-	return
-}
-
 func updateProgress(progress chan<- struct{}) {
 	// TODO: Eventually we'll want more information than a single bit :).
 	if progress != nil {
@@ -104,7 +177,9 @@ func updateProgress(progress chan<- struct{}) {
 
 func (m *merger) threeWay(a, b, parent types.Value, path types.Path) (merged types.Value, err error) {
 	defer updateProgress(m.progress)
-	d.PanicIfTrue(a == nil || b == nil, "Merge candidates cannont be nil: a = %v, b = %v", a, b)
+	if a == nil || b == nil {
+		d.Panic("Merge candidates cannont be nil: a = %v, b = %v", a, b)
+	}
 
 	switch a.Type().Kind() {
 	case types.ListKind:

@@ -28,15 +28,11 @@ func newLocalBatchStore(cs chunks.ChunkStore) *localBatchStore {
 	return &localBatchStore{
 		cs:            cs,
 		unwrittenPuts: newOrderedChunkCache(),
-		vbs:           types.NewValidatingBatchingSink(cs, types.NewTypeCache()),
+		vbs:           types.NewValidatingBatchingSink(cs),
 		hints:         types.Hints{},
 		hashes:        hash.HashSet{},
 		mu:            &sync.Mutex{},
 	}
-}
-
-func (lbs *localBatchStore) IsValidating() bool {
-	return true
 }
 
 // Get checks the internal Chunk cache, proxying to the backing ChunkStore if not present.
@@ -70,7 +66,9 @@ func (lbs *localBatchStore) SchedulePut(c chunks.Chunk, refHeight uint64, hints 
 
 func (lbs *localBatchStore) expectVersion() {
 	dataVersion := lbs.cs.Version()
-	d.PanicIfTrue(constants.NomsVersion != dataVersion, "SDK version %s incompatible with data of version %s", constants.NomsVersion, dataVersion)
+	if constants.NomsVersion != dataVersion {
+		d.Panic("SDK version %s incompatible with data of version %s", constants.NomsVersion, dataVersion)
+	}
 }
 
 func (lbs *localBatchStore) Root() hash.Hash {
@@ -105,7 +103,8 @@ func (lbs *localBatchStore) Flush() {
 	var bpe chunks.BackpressureError
 	for c := range chunkChan {
 		if bpe == nil {
-			bpe = lbs.vbs.Enqueue(*c)
+			dc := lbs.vbs.DecodeUnqueued(c)
+			bpe = lbs.vbs.Enqueue(*dc.Chunk, *dc.Value)
 		} else {
 			bpe = append(bpe, c.Hash())
 		}
@@ -122,9 +121,18 @@ func (lbs *localBatchStore) Flush() {
 	lbs.hints = types.Hints{}
 }
 
-// Close closes the underlying ChunkStore
-func (lbs *localBatchStore) Close() error {
+// FlushAndDestroyWithoutClose flushes lbs and destroys its cache of unwritten chunks. It's needed because LocalDatabase wraps a localBatchStore around a ChunkStore that's used by a separate BatchStore, so calling Close() on one is semantically incorrect while it still wants to use the other.
+func (lbs *localBatchStore) FlushAndDestroyWithoutClose() {
 	lbs.Flush()
 	lbs.unwrittenPuts.Destroy()
-	return lbs.cs.Close()
+}
+
+// Destroy blows away lbs' cache of unwritten chunks without flushing. Used when the owning Database is closing and it isn't semantically correct to flush.
+func (lbs *localBatchStore) Destroy() {
+	lbs.unwrittenPuts.Destroy()
+}
+
+// Close is supposed to close the underlying ChunkStore, but the only place localBatchStore is currently used wants to keep the underlying ChunkStore open after it's done with lbs. Hence, the above method and the panic() here.
+func (lbs *localBatchStore) Close() error {
+	panic("Unreached")
 }

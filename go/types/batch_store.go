@@ -16,9 +16,6 @@ import (
 
 // BatchStore provides an interface similar to chunks.ChunkStore, but batch-oriented. Instead of Put(), it provides SchedulePut(), which enqueues a Chunk to be sent at a possibly later time.
 type BatchStore interface {
-	// IsValidating indicates whether this implementation can internally enforce chunk validity & completeness. If a BatchStore supports this, it must also support "staging" of writes -- that is, allowing chunks to be written which reference chunks which have yet to be written.
-	IsValidating() bool
-
 	// Get returns from the store the Value Chunk by h. If h is absent from the store, chunks.EmptyChunk is returned.
 	Get(h hash.Hash) chunks.Chunk
 
@@ -49,10 +46,6 @@ func NewBatchStoreAdaptor(cs chunks.ChunkStore) BatchStore {
 	return &BatchStoreAdaptor{cs: cs}
 }
 
-func (bsa *BatchStoreAdaptor) IsValidating() bool {
-	return false
-}
-
 // Get simply proxies to the backing ChunkStore
 func (bsa *BatchStoreAdaptor) Get(h hash.Hash) chunks.Chunk {
 	bsa.once.Do(bsa.expectVersion)
@@ -67,7 +60,9 @@ func (bsa *BatchStoreAdaptor) SchedulePut(c chunks.Chunk, refHeight uint64, hint
 
 func (bsa *BatchStoreAdaptor) expectVersion() {
 	dataVersion := bsa.cs.Version()
-	d.PanicIfTrue(constants.NomsVersion != dataVersion, "SDK version %s incompatible with data of version %s", constants.NomsVersion, dataVersion)
+	if constants.NomsVersion != dataVersion {
+		d.Panic("SDK version %s incompatible with data of version %s", constants.NomsVersion, dataVersion)
+	}
 }
 
 func (bsa *BatchStoreAdaptor) Root() hash.Hash {

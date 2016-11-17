@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Blob, {BlobLeafSequence} from './blob.js';
 import List, {ListLeafSequence} from './list.js';
@@ -154,6 +154,9 @@ export default class ValueEncoder {
       case Kind.Number:
         invariant(typeof v === 'number',
                   () => `Failed to write Number. Invalid type: ${describeTypeOfValue(v)}`);
+        if (!Number.isFinite(v)) {
+          throw new Error(`${v} is not a supported number`);
+        }
         this._w.writeNumber(v);
         break;
       case Kind.List: {
