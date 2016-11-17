@@ -76,17 +76,16 @@ func (s Struct) Hash() hash.Hash {
 	return *s.h
 }
 
-func (s Struct) ChildValues() []Value {
-	return s.values
+func (s Struct) WalkValues(cb ValueCallback) {
+	for _, v := range s.values {
+		cb(v)
+	}
 }
 
-func (s Struct) Chunks() (chunks []Ref) {
-	chunks = append(chunks, s.t.Chunks()...)
+func (s Struct) WalkRefs(cb RefCallback) {
 	for _, v := range s.values {
-		chunks = append(chunks, v.Chunks()...)
+		v.WalkRefs(cb)
 	}
-
-	return
 }
 
 func (s Struct) Type() *Type {
@@ -97,6 +96,8 @@ func (s Struct) desc() StructDesc {
 	return s.t.Desc.(StructDesc)
 }
 
+// MaybeGet returns the value of a field in the struct. If the struct does not a have a field with
+// the name name then this returns (nil, false).
 func (s Struct) MaybeGet(n string) (Value, bool) {
 	_, i := s.desc().findField(n)
 	if i == -1 {
@@ -105,6 +106,8 @@ func (s Struct) MaybeGet(n string) (Value, bool) {
 	return s.values[i], true
 }
 
+// Get returns the value of a field in the struct. If the struct does not a have a field with the
+// name name then this panics.
 func (s Struct) Get(n string) Value {
 	_, i := s.desc().findField(n)
 	if i == -1 {
@@ -113,17 +116,51 @@ func (s Struct) Get(n string) Value {
 	return s.values[i]
 }
 
+// Set returns a new struct where the field name has been set to value. If name is not an
+// existing field in the struct or the type of value is different from the old value of the
+// struct field a new struct type is created.
 func (s Struct) Set(n string, v Value) Struct {
 	f, i := s.desc().findField(n)
-	if i == -1 {
-		d.Chk.Fail(fmt.Sprintf(`Struct has no field "%s"`, n))
+	if i == -1 || !IsSubtype(f.t, v.Type()) {
+		// New/change field
+		data := make(StructData, len(s.values)+1)
+		for i, f := range s.desc().fields {
+			data[f.name] = s.values[i]
+		}
+		data[n] = v
+		return NewStruct(s.desc().Name, data)
 	}
-	assertSubtype(f.t, v)
+
 	values := make([]Value, len(s.values))
 	copy(values, s.values)
 	values[i] = v
-
 	return Struct{values, s.t, &hash.Hash{}}
+}
+
+// Delete returns a new struct where the field name has been removed.
+// If name is not an existing field in the struct then the current struct is returned.
+func (s Struct) Delete(n string) Struct {
+	desc := s.desc()
+	_, idx := desc.findField(n)
+	if idx == -1 {
+		return s
+	}
+
+	values := make([]Value, len(s.values)-1)
+	fieldNames := make([]string, len(s.values)-1)
+	fieldTypes := make([]*Type, len(s.values)-1)
+	j := 0
+	for i, v := range s.values {
+		if i != idx {
+			values[j] = v
+			fieldNames[j] = desc.fields[i].name
+			fieldTypes[j] = desc.fields[i].t
+			j++
+		}
+	}
+
+	newType := MakeStructType(s.desc().Name, fieldNames, fieldTypes)
+	return NewStructWithType(newType, values)
 }
 
 func (s Struct) Diff(last Struct, changes chan<- ValueChanged, closeChan <-chan struct{}) {
@@ -270,7 +307,9 @@ func verifyFieldNames(names []string) {
 }
 
 func verifyName(name, kind string) {
-	d.PanicIfTrue(!IsValidStructFieldName(name), `Invalid struct%s name: "%s"`, kind, name)
+	if !IsValidStructFieldName(name) {
+		d.Panic(`Invalid struct%s name: "%s"`, kind, name)
+	}
 }
 
 func verifyFieldName(name string) {

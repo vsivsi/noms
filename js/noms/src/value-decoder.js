@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Blob, {BlobLeafSequence} from './blob.js';
 import Ref, {constructRef} from './ref.js';
@@ -232,6 +232,6 @@ export default class ValueDecoder {
       fieldNames[i] = this._r.readString();
       fieldTypes[i] = this.readType();
     }
-    return this._tc.makeStructType(name, fieldNames, fieldTypes);
+    return this._tc.makeStructTypeQuickly(name, fieldNames, fieldTypes);
   }
 }

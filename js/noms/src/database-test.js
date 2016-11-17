@@ -1,25 +1,27 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
 
+// @flow
+
 import {suite, test} from 'mocha';
-import {makeTestingRemoteBatchStore} from './remote-batch-store.js';
-import {emptyHash} from './hash.js';
+import makeRemoteBatchStoreFake from './remote-batch-store-fake.js';
+import {TestingDelegate} from './remote-batch-store-fake.js';
+import RemoteBatchStore from './remote-batch-store.js';
+import MemoryStore from './memory-store.js';
 import {assert} from 'chai';
 import Commit from './commit.js';
 import Database from './database.js';
-import {invariant, notNull} from './assert.js';
+import {notNull} from './assert.js';
 import List from './list.js';
-import Map from './map.js';
+import Struct, {newStruct} from './struct.js';
 import {encodeValue} from './codec.js';
 import NomsSet from './set.js'; // namespace collision with JS Set
-import {equals} from './compare.js';
+import {invariant} from './assert.js';
 
 suite('Database', () => {
   test('access', async () => {
-    const bs = makeTestingRemoteBatchStore();
+    const bs = makeRemoteBatchStoreFake();
     const ds = new Database(bs);
     const input = 'abc';
 
@@ -36,150 +38,191 @@ suite('Database', () => {
   });
 
   test('commit', async () => {
-    const bs = makeTestingRemoteBatchStore();
-    let ds = new Database(bs);
-    const datasetID = 'ds1';
+    const bs = makeRemoteBatchStoreFake();
+    const db = new Database(bs);
+    let ds = await db.getDataset('ds1');
 
-    const datasets = await ds.datasets();
+    const datasets = await db.datasets();
     assert.isTrue(datasets.isEmpty());
 
     // |a|
     const aCommit = new Commit('a');
-    const ds2 = await ds.commit(datasetID, aCommit);
+    let ds2 = await db.commit(ds, 'a');
 
-    // The old database still still has no head.
-    assert.isNull(await ds.head(datasetID));
+    // The old dataset still has no head.
+    assert.isNull(await ds.head());
 
     // The new database has |a|.
-    const aRef = notNull(await ds2.headRef(datasetID));
+    const aRef = notNull(await ds2.headRef());
     assert.isTrue(aCommit.hash.equals(aRef.targetHash));
     assert.strictEqual(1, aRef.height);
-    const aCommit1 = notNull(await ds2.head(datasetID));
+    const aCommit1 = notNull(await ds2.head());
     assert.strictEqual('a', aCommit1.value);
-    ds = ds2;
 
     // |a| <- |b|
-    const bCommit = new Commit('b', new NomsSet([aRef]));
-    ds = await ds.commit(datasetID, bCommit);
-    const bRef = notNull(await ds.headRef(datasetID));
-    assert.isTrue(bCommit.hash.equals(bRef.targetHash));
+    ds = await db.commit(ds2, 'b', {parents: [aRef]});
+    const bRef = notNull(await ds.headRef());
     assert.strictEqual(2, bRef.height);
-    assert.strictEqual('b', notNull(await ds.head(datasetID)).value);
+    assert.strictEqual('b', notNull(await ds.head()).value);
 
     // |a| <- |b|
     //   \----|c|
     // Should be disallowed.
-    const cCommit = new Commit('c');
     let message = '';
     try {
-      await ds.commit(datasetID, cCommit);
+      ds = await db.commit(ds2, 'c');
       throw new Error('not reached');
     } catch (ex) {
       message = ex.message;
     }
     assert.strictEqual('Merge needed', message);
-    assert.strictEqual('b', notNull(await ds.head(datasetID)).value);
+    assert.strictEqual('b', notNull(await ds.head()).value);
 
     // |a| <- |b| <- |d|
-    const dCommit = new Commit('d', new NomsSet([bRef]));
-    ds = await ds.commit(datasetID, dCommit);
-    const dRef = notNull(await ds.headRef(datasetID));
-    assert.isTrue(dCommit.hash.equals(dRef.targetHash));
+    ds = await db.commit(ds, 'd', {parents: [bRef]});
+    const dRef = notNull(await ds.headRef());
     assert.strictEqual(3, dRef.height);
-    assert.strictEqual('d', notNull(await ds.head(datasetID)).value);
+    assert.strictEqual('d', notNull(await ds.head()).value);
 
     // Attempt to recommit |b| with |a| as parent.
     // Should be disallowed.
     try {
-      await ds.commit(datasetID, bCommit);
+      ds = await db.commit(ds, 'b', {parents: [aRef]});
       throw new Error('not reached');
     } catch (ex) {
       message = ex.message;
     }
     // assert.strictEqual('Merge needed', message);
-    assert.strictEqual('d', notNull(await ds.head(datasetID)).value);
+    assert.strictEqual('d', notNull(await ds.head()).value);
 
     // Add a commit to a different datasetId
-    ds = await ds.commit('otherDs', aCommit);
-    assert.strictEqual('a', notNull(await ds.head('otherDs')).value);
+    ds2 = await db.getDataset('otherDs');
+    ds2 = await db.commit(ds2, 'a');
+    assert.strictEqual('a', notNull(await ds2.head()).value);
 
     // Get a fresh database, and verify that both datasets are present
-    const newDs = new Database(bs);
-    assert.strictEqual('d', notNull(await newDs.head(datasetID)).value);
-    assert.strictEqual('a', notNull(await newDs.head('otherDs')).value);
-    await ds.close();
+    const newDB = new Database(bs);
+    const newDS1 = await newDB.getDataset('ds1');
+    const newDS2 = await newDB.getDataset('otherDs');
+    assert.strictEqual('d', notNull(await newDS1.head()).value);
+    assert.strictEqual('a', notNull(await newDS2.head()).value);
+    await db.close();
   });
 
-  test('concurrency', async () => {
-    const bs = makeTestingRemoteBatchStore();
-    let ds = new Database(bs);
-    const datasetID = 'ds1';
+  test('duplicate commit', async () => {
+    const bs = makeRemoteBatchStoreFake();
+    const db = new Database(bs);
+    const ds = await db.getDataset('ds1');
 
-    // |a|
-    const aCommit = new Commit('a');
-    ds = await ds.commit(datasetID, aCommit);
-    const aRef = notNull(await ds.headRef(datasetID));
-    const bCommit = new Commit('b', new NomsSet([aRef]));
-    ds = await ds.commit(datasetID, bCommit);
-    const bRef = notNull(await ds.headRef(datasetID));
-    assert.strictEqual('b', notNull(await ds.head(datasetID)).value);
+    const datasets = await db.datasets();
+    assert.isTrue(datasets.isEmpty());
 
-    // Important to create this here.
-    let ds2 = new Database(bs);
-
-    // Change 1:
-    // |a| <- |b| <- |c|
-    const cCommit = new Commit('c', new NomsSet([bRef]));
-    ds = await ds.commit(datasetID, cCommit);
-    assert.strictEqual('c', notNull(await ds.head(datasetID)).value);
-
-    // Change 2:
-    // |a| <- |b| <- |e|
-    // Should be disallowed, Database returned by Commit() should have |c| as Head.
-    const eCommit = new Commit('e', new NomsSet([bRef]));
+    await db.commit(ds, 'a');
+    // Should be disallowed, Dataset returned by Commit() should have |c| as Head.
     let message = '';
     try {
-      ds2 = await ds2.commit(datasetID, eCommit);
+      await db.commit(ds, 'a');
       throw new Error('not reached');
     } catch (ex) {
       message = ex.message;
     }
     assert.strictEqual('Merge needed', message);
-    assert.strictEqual('c', notNull(await ds.head(datasetID)).value);
-    await ds.close();
+
+    await db.close();
   });
 
+  test('concurrency', async () => {
+    const bs = makeRemoteBatchStoreFake();
+    const db = new Database(bs);
+    let ds = await db.getDataset('ds1');
+
+    // |a| <- |b|
+    ds = await db.commit(ds, 'a');
+    const aRef = notNull(await ds.headRef());
+    ds = await db.commit(ds, 'b', {parents: [aRef]});
+    const bRef = notNull(await ds.headRef());
+    assert.strictEqual('b', notNull(await ds.head()).value);
+
+    // Important to create this here.
+    const db2 = new Database(bs);
+
+    // Change 1:
+    // |a| <- |b| <- |c|
+    ds = await db.commit(ds, 'c', {parents: [bRef]});
+    assert.strictEqual('c', notNull(await ds.head()).value);
+
+    // Change 2:
+    // |a| <- |b| <- |e|
+    // Should be disallowed, Dataset returned by Commit() should have |c| as Head.
+    let message = '';
+    try {
+      await db2.commit(ds, 'e', {parents: [bRef]});
+      throw new Error('not reached');
+    } catch (ex) {
+      message = ex.message;
+    }
+    assert.strictEqual('Merge needed', message);
+    assert.strictEqual('c', notNull(await ds.head()).value);
+    await db.close();
+  });
+
+  test('commit with concurrent chunk store use', async () => {
+    const dsID = 'ds1';
+    const ms = new MemoryStore();
+
+    // Craft DB that will allow me to move the backing ChunkStore while the code isn't looking
+    const hookedDelegate = new TestingDelegate(ms);
+    const hookedDB = new Database(new RemoteBatchStore(3, hookedDelegate));
+
+    let ds1 = await hookedDB.getDataset(dsID);
+    ds1 = await hookedDB.commit(ds1, 'a');
+    ds1 = await hookedDB.commit(ds1, 'b');
+    assert.strictEqual('b', notNull(await ds1.headValue()));
+
+    // Concurrent change, but to some other dataset. This shouldn't stop changes to ds1.
+    // ds1: |a| <- |b|
+    // ds2: |stuff|
+    hookedDelegate.preUpdateRootHook = async () => {
+      const db = new Database(new RemoteBatchStore(3, new TestingDelegate(ms)));
+      const ds2 = await db.commit(db.getDataset('ds2'), 'stuff');
+      assert.strictEqual(notNull(await ds2.headValue()), 'stuff');
+      hookedDelegate.preUpdateRootHook = () => Promise.resolve();
+    };
+
+    // Attempted Concurrent change, which should proceed without a problem
+    ds1 = await hookedDB.commit(ds1, 'c');
+    assert.strictEqual(notNull(await ds1.headValue()), 'c');
+
+    // Concurrent change, to move root out from under my feet:
+    // ds1: |a| <- |b| <- |c| <- |e|
+    hookedDelegate.preUpdateRootHook = async () => {
+      const db = new Database(new RemoteBatchStore(3, new TestingDelegate(ms)));
+      const ds = await db.commit(db.getDataset(dsID), 'e');
+      assert.strictEqual(notNull(await ds.headValue()), 'e');
+      hookedDelegate.preUpdateRootHook = () => Promise.resolve();
+    };
+
+    // Attempted Concurrent change, which should fail due to the above
+    let message = '';
+    try {
+      await hookedDB.commit(ds1, 'nope');
+      throw new Error('not reached');
+    } catch (ex) {
+      message = ex.message;
+    }
+    assert.strictEqual('Merge needed', message);
+    assert.strictEqual(notNull(await hookedDB.getDataset(dsID).headValue()), 'e');
+  });
 
   test('empty datasets', async () => {
-    const ds = new Database(makeTestingRemoteBatchStore());
+    const ds = new Database(makeRemoteBatchStoreFake());
     const datasets = await ds.datasets();
     assert.strictEqual(0, datasets.size);
     await ds.close();
   });
 
-  test('head', async () => {
-    const bs = makeTestingRemoteBatchStore();
-    let ds = new Database(bs);
-
-    const commit = new Commit('foo');
-
-    const commitRef = ds.writeValue(commit);
-    const datasets = new Map([['foo', commitRef]]);
-    const rootRef = ds.writeValue(datasets).targetHash;
-    assert.isTrue(await bs.updateRoot(rootRef, emptyHash));
-    ds = new Database(bs); // refresh the datasets
-
-    assert.strictEqual(1, datasets.size);
-    const fooHead = await ds.head('foo');
-    invariant(fooHead);
-    assert.isTrue(equals(fooHead, commit));
-    const barHead = await ds.head('bar');
-    assert.isNull(barHead);
-    await ds.close();
-  });
-
   test('height of refs', async () => {
-    const ds = new Database(new makeTestingRemoteBatchStore());
+    const ds = new Database(new makeRemoteBatchStoreFake());
 
     const v1 = ds.writeValue('hello');
     assert.strictEqual(1, v1.height);
@@ -191,7 +234,7 @@ suite('Database', () => {
   });
 
   test('height of collections', async() => {
-    const ds = new Database(new makeTestingRemoteBatchStore());
+    const ds = new Database(new makeRemoteBatchStoreFake());
 
     // Set<String>.
     const v1 = 'hello';
@@ -225,5 +268,19 @@ suite('Database', () => {
     const l5 = new List([ds.writeValue(s1), s3]);
     assert.strictEqual(2, ds.writeValue(l5).height);
     await ds.close();
+  });
+
+  test('meta option', async () => {
+    const db = new Database(makeRemoteBatchStoreFake());
+    let ds = await db.getDataset('ds1');
+
+    const meta = newStruct('M', {author: 'arv'});
+    ds = await db.commit(ds, 'a', {meta});
+
+    const c = await ds.head();
+    invariant(c instanceof Struct);
+
+    const m2 = c.meta;
+    assert.equal(m2.author, 'arv');
   });
 });

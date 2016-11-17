@@ -107,15 +107,16 @@ func (m Map) Hash() hash.Hash {
 	return *m.h
 }
 
-func (m Map) ChildValues() (values []Value) {
+func (m Map) WalkValues(cb ValueCallback) {
 	m.IterAll(func(k, v Value) {
-		values = append(values, k, v)
+		cb(k)
+		cb(v)
 	})
 	return
 }
 
-func (m Map) Chunks() []Ref {
-	return m.seq.Chunks()
+func (m Map) WalkRefs(cb RefCallback) {
+	m.seq.WalkRefs(cb)
 }
 
 func (m Map) Type() *Type {
@@ -251,7 +252,9 @@ func buildMapData(values []Value) mapEntrySlice {
 	}
 
 	// Sadly, d.Chk.Equals() costs too much. BUG #83
-	d.PanicIfFalse(0 == len(values)%2, "Must specify even number of key/value pairs")
+	if 0 != len(values)%2 {
+		d.Panic("Must specify even number of key/value pairs")
+	}
 	kvs := make(mapEntrySlice, len(values)/2)
 
 	for i := 0; i < len(values); i += 2 {

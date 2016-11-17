@@ -1,13 +1,12 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
 
+// @flow
+
 import {assert} from 'chai';
 import {suite, test} from 'mocha';
-
-import Dataset from './dataset.js';
+import {invariant} from './assert.js';
 import {getHash} from './get-hash.js';
 import List from './list.js';
 import {DatabaseSpec, DatasetSpec, PathSpec} from './specs.js';
@@ -42,7 +41,8 @@ suite('Specs', () => {
     let [, head] = await spec.value();
     assert.strictEqual(null, head);
 
-    await spec.dataset().commit('Commit Value');
+    const [db, ds] = await spec.dataset();
+    await db.commit(ds, 'Commit Value');
     [, head] = await spec.value();
     assert.strictEqual('Commit Value', head);
   });
@@ -65,8 +65,8 @@ suite('Specs', () => {
     let [db, value] = await spec.value();
     assert.strictEqual(null, value);
 
-    const ds = new Dataset(db, 'test');
-    await ds.commit(new List([42]));
+    const ds = await db.getDataset('test');
+    await db.commit(ds, new List([42]));
     [db, value] = await spec.value();
     assert.strictEqual(42, value);
   });
@@ -101,6 +101,7 @@ suite('Specs', () => {
       const spec = DatabaseSpec.parse(tc.spec);
       assert.strictEqual(spec.scheme, tc.scheme);
       assert.strictEqual(spec.path, tc.path);
+      assert.strictEqual(tc.spec, spec.toString());
     }
   });
 
@@ -155,6 +156,7 @@ suite('Specs', () => {
       assert.strictEqual(tc.scheme, scheme);
       assert.strictEqual(tc.path, path);
       assert.strictEqual(tc.name, spec.name);
+      assert.strictEqual(tc.spec, spec.toString());
     }
   });
 
@@ -190,6 +192,37 @@ suite('Specs', () => {
       assert.strictEqual(tc.scheme, scheme);
       assert.strictEqual(tc.dbPath, path);
       assert.strictEqual(tc.pathStr, spec.path.toString());
+      assert.strictEqual(tc.spec, spec.toString());
     }
+  });
+
+
+  test('PathSpec.pin', async () => {
+    const dbSpec = DatabaseSpec.parse('mem');
+    const db = dbSpec.database();
+
+    let ds = db.getDataset('foo');
+    ds = await db.commit(ds, 42);
+
+    const unpinned = PathSpec.parse('mem::foo.value');
+    unpinned.database = dbSpec;
+
+    const pinned = await unpinned.pin();
+    invariant(pinned);
+    const pinnedHash = pinned.path.hash;
+    invariant(pinnedHash);
+    const h = await ds.head();
+    invariant(h);
+    assert.strictEqual(h.hash.toString(), pinnedHash.toString());
+    assert.strictEqual(`mem::#${h.hash.toString()}.value`, pinned.toString());
+    assert.strictEqual(42, (await pinned.value())[1]);
+    assert.strictEqual(42, (await unpinned.value())[1]);
+
+    ds = await db.commit(ds, 43);
+    assert.strictEqual(42, (await pinned.value())[1]);
+    assert.strictEqual(43, (await unpinned.value())[1]);
+
+    const pinned1 = PathSpec.parse('mem::#imgp9mp1h3b9nv0gna6mri53dlj9f4ql.value');
+    assert.strictEqual(pinned1, await pinned1.pin());
   });
 });

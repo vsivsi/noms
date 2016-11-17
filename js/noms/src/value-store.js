@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Chunk from './chunk.js';
 import Hash, {emptyHash} from './hash.js';
@@ -25,12 +25,12 @@ import {describeType, describeTypeOfValue} from './encode-human-readable.js';
 import {equals} from './compare.js';
 
 export interface ValueWriter {
-  writeValue<T: Value>(v: T): Ref<T>
+  writeValue<T: Value>(v: T): Ref<T>;
 }
 
 export interface ValueReader {
   // TODO: This should return Promise<?Value>
-  readValue(hash: Hash): Promise<any>
+  readValue(hash: Hash): Promise<any>;
 }
 
 export interface ValueReadWriter {
@@ -90,6 +90,7 @@ export default class ValueStore {
     const hints = this._knownHashes.checkChunksInCache(v);
     this._bs.schedulePut(chunk, hints);
     this._knownHashes.add(hash, new HashCacheEntry(true, t));
+    this._valueCache.drop(hash);
     return ref;
   }
 
@@ -106,6 +107,7 @@ interface Cache<T> {  // eslint-disable-line no-undef
   entry(hash: Hash): ?CacheEntry<T>;  // eslint-disable-line no-undef
   get(hash: Hash): ?T;  // eslint-disable-line no-undef
   add(hash: Hash, size: number, value: T): void;  // eslint-disable-line no-undef
+  drop(hash: Hash): void;  // eslint-disable-line no-undef
 }
 
 class CacheEntry<T> {
@@ -154,7 +156,7 @@ export class SizeCache<T> {
     return entry ? entry.value : undefined;
   }
 
-  add(hash: Hash, size: number, value: ?T) {
+  add(hash: Hash, size: number, value: ?T): void {
     const key = hash.toString();
     if (this._cache.has(key)) {
       this._cache.delete(key);
@@ -173,6 +175,15 @@ export class SizeCache<T> {
       }
     }
   }
+
+  drop(hash: Hash): void {
+    const key = hash.toString();
+    const entry = this._cache.get(key);
+    if (entry) {
+      this._cache.delete(key);
+      this._size -= entry.size;
+    }
+  }
 }
 
 export class NoopCache<T> {
@@ -180,7 +191,9 @@ export class NoopCache<T> {
 
   get(hash: Hash): ?T {}  // eslint-disable-line no-unused-vars
 
-  add(hash: Hash, size: number, value: T) {}  // eslint-disable-line no-unused-vars
+  add(hash: Hash, size: number, value: T): void {}  // eslint-disable-line no-unused-vars
+
+  drop(hash: Hash): void {}  // eslint-disable-line no-unused-vars
 }
 
 

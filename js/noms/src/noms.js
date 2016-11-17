@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 export {default as AbsolutePath} from './absolute-path.js';
 export {AsyncIterator} from './async-iterator.js';
@@ -14,7 +14,9 @@ export {default as Blob, BlobReader, BlobWriter} from './blob.js';
 export {decodeValue} from './codec.js';
 export {default as Chunk} from './chunk.js';
 export {getHashOfValue} from './get-hash.js';
+export {BatchStoreAdaptor} from './batch-store.js';
 export {default as HttpBatchStore} from './http-batch-store.js';
+export {default as HttpError} from './http-error.js';
 export {default as MemoryStore} from './memory-store.js';
 export {default as Hash, emptyHash} from './hash.js';
 export {default as Path} from './path.js';
@@ -58,6 +60,7 @@ export {
   getTypeOfValue,
 } from './type.js';
 export {equals, less} from './compare.js';
+export {default as Spec, SpecOptions} from './spec.js';
 export {DatabaseSpec, DatasetSpec, PathSpec} from './specs.js';
 export {default as walk} from './walk.js';
 export {default as jsonToNoms} from './json-convert.js';

@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import argv from 'yargs';
 import http from 'http';
@@ -42,9 +42,9 @@ function main(): Promise<void> {
     return Promise.resolve();
   }
 
-  const set = spec.dataset();
+  const [db, set] = spec.dataset();
   return getBlob(url)
-    .then(b => set.commit(b))
+    .then(b => db.commit(set, b))
     .then(() => {
       process.stderr.write(clearLine + 'Done\n');
     });
@@ -58,7 +58,7 @@ function getBlob(url): Promise<Blob> {
       switch (Math.floor(res.statusCode / 100)) {
         case 4:
         case 5:
-          invariant(res.statusMessage);
+          invariant(typeof res.statusMessage === 'string');
           process.stderr.write(`Error fetching ${url}: ${res.statusCode}: ${res.statusMessage}\n`);
           process.exit(1);
           break;

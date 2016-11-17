@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import {TestDatabase} from './test-util.js';
 import Struct, {
@@ -81,16 +81,56 @@ suite('Struct', () => {
     const s5 = s3.setO('bye');
     const s6 = new StructMirror(s3).set('o', 'bye');
     assert.isTrue(equals(s5, s6));
+
+    // Changes the type
+    const s7 = new StructMirror(s1).set('b', 42);
+    assert.isTrue(equals(s7.type, makeStructType('S3', {
+      b: numberType,
+      o: stringType,
+    })));
+
+    // Adds a new field
+    const s8 = new StructMirror(s1).set('x', 42);
+    assert.isTrue(equals(s8.type, makeStructType('S3', {
+      b: boolType,
+      o: stringType,
+      x: numberType,
+    })));
+
+    // Subtype
+    const s9 = newStruct('', {l: new List([0, 1, false, true])});
+    const s10 = new StructMirror(s9).set('l', new List([2, 3]));
+    assert.isTrue(equals(s9.type, s10.type));
+  });
+
+  test('struct delete', () => {
+    const s1 = newStruct('S', {b: true, o: 'hi'});
+    const m1 = new StructMirror(s1);
+
+    const s2 = m1.delete('notThere');
+    assert.isTrue(equals(s1, s2));
+
+    const s3 = m1.delete('o');
+    const s4 = newStruct('S', {b: true});
+    assert.isTrue(equals(s3, s4));
+
+    const s5 = s1.deleteO();
+    assert.isTrue(equals(s4, s5));
+
+    const m5 = new StructMirror(s5);
+    const s6 = m5.delete('b');
+    const s7 = newStruct('S', {});
+    assert.isTrue(equals(s6, s7));
+
+    const s8 = s5.deleteB();
+    assert.isTrue(equals(s7, s8));
   });
 
   test('createStructClass', () => {
-    const typeA = makeStructType('A',
-      ['b', 'c'],
-      [
-        numberType,
-        stringType,
-      ]
-    );
+    const typeA = makeStructType('A', {
+      b: numberType,
+      c: stringType,
+    });
     const A = createStructClass(typeA);
     const a = new A({b: 1, c: 'hi'});
     assert.instanceOf(a, Struct);
@@ -100,13 +140,10 @@ suite('Struct', () => {
   });
 
   test('type validation', () => {
-    const type = makeStructType('S1',
-      ['o', 'x'],
-      [
-        stringType,
-        boolType,
-      ]
-    );
+    const type = makeStructType('S1', {
+      o: stringType,
+      x: boolType,
+    });
 
     assert.throws(() => {
       newStructWithType(type, ['hi', 1]);
@@ -123,13 +160,10 @@ suite('Struct', () => {
     //   b: Bool
     //   l: List<S>
     // }
-    const type = makeStructType('S',
-      ['b', 'l'],
-      [
-        boolType,
-        makeListType(makeCycleType(0)),
-      ]
-    );
+    const type = makeStructType('S', {
+      b: boolType,
+      l: makeListType(makeCycleType(0)),
+    });
 
     const emptyList = new List([]);
     newStructWithType(type, [true, emptyList]);
@@ -148,7 +182,7 @@ suite('Struct', () => {
     });
   });
 
-  function assertDiff(expect: [string], s1: Struct, s2: Struct) {
+  function assertDiff(expect: string[], s1: Struct, s2: Struct) {
     const actual = structDiff(s1, s2);
     assert.deepEqual(expect, actual);
   }
@@ -218,7 +252,11 @@ suite('Struct', () => {
     assert.notEqual(s.hash, 'hash');
 
     assert.isTrue(equals(s.type,
-        makeStructType('', ['chunks', 'hash', 'type'], [stringType, stringType, stringType])));
+        makeStructType('', {
+          chunks: stringType,
+          hash: stringType,
+          type: stringType,
+        })));
     assert.deepEqual(s.chunks, []);
     assert.instanceOf(s.hash, Hash);
   });

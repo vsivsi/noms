@@ -46,14 +46,15 @@ func (s *testSuite) TestImportFromStdin() {
 	// Run() will return when blobOut is closed.
 	s.MustRun(main, []string{"--stdin", dsName})
 
-	db, blob, err := spec.GetPath(dsName + ".value")
+	sp, err := spec.ForPath(dsName + ".value")
 	assert.NoError(err)
-	defer db.Close()
+	defer sp.Close()
 
 	expected := types.NewBlob(bytes.NewBufferString("abcdef"))
-	assert.True(expected.Equals(blob))
+	assert.True(expected.Equals(sp.GetValue()))
 
-	meta := db.Head("ds").Get(datas.MetaField).(types.Struct)
+	ds := sp.GetDatabase().GetDataset("ds")
+	meta := ds.Head().Get(datas.MetaField).(types.Struct)
 	// The meta should only have a "date" field.
 	metaDesc := meta.Type().Desc.(types.StructDesc)
 	assert.Equal(1, metaDesc.Len())
@@ -72,14 +73,15 @@ func (s *testSuite) TestImportFromFile() {
 	dsName := spec.CreateValueSpecString("ldb", s.LdbDir, "ds")
 	s.MustRun(main, []string{f.Name(), dsName})
 
-	db, blob, err := spec.GetPath(dsName + ".value")
+	sp, err := spec.ForPath(dsName + ".value")
 	assert.NoError(err)
-	defer db.Close()
+	defer sp.Close()
 
 	expected := types.NewBlob(bytes.NewBufferString("abcdef"))
-	assert.True(expected.Equals(blob))
+	assert.True(expected.Equals(sp.GetValue()))
 
-	meta := db.Head("ds").Get(datas.MetaField).(types.Struct)
+	ds := sp.GetDatabase().GetDataset("ds")
+	meta := ds.Head().Get(datas.MetaField).(types.Struct)
 	metaDesc := meta.Type().Desc.(types.StructDesc)
 	assert.Equal(2, metaDesc.Len())
 	assert.NotNil(metaDesc.Field("date"))

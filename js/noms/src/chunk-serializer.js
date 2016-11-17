@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Chunk from './chunk.js';
 import Hash, {byteLength as hashByteLength} from './hash.js';
@@ -14,7 +14,7 @@ const headerSize = 4; // uint32
 const chunkLengthSize = 4; // uint32
 const chunkHeaderSize = hashByteLength + chunkLengthSize;
 
-export type ChunkStream = (cb: (chunk: Chunk) => void) => Promise<void>
+export type ChunkStream = (cb: (chunk: Chunk) => void) => Promise<void>;
 
 export function serialize(hints: Set<Hash>, stream: ChunkStream): Promise<Uint8Array> {
   const hintsLength = serializedHintsLength(hints);
@@ -98,8 +98,7 @@ function deserializeHints(buff: Uint8Array): {hints: Array<Hash>, offset: number
   return {hints: hints, offset: offset};
 }
 
-export function deserializeChunks(buff: Uint8Array, offset: number = 0):
-    Array<Chunk> {
+export function deserializeChunks(buff: Uint8Array, offset: number = 0): Array<Chunk> {
   const chunks:Array<Chunk> = [];
 
   const totalLength = buff.byteLength;
