@@ -1,6 +1,6 @@
 <img src='doc/nommy_cropped_smaller.png' width='350' title='Nommy, the snacky otter'>
 <br>
-[Command-Line Tour](doc/cli-tour.md)&nbsp; | &nbsp;[Go SDK Tour](doc/go-tour.md)&nbsp; | &nbsp;[JavaScript SDK Tour](doc/js-tour.md)&nbsp; | &nbsp;[Intro to Noms](doc/intro.md)&nbsp; | &nbsp;[FAQ](doc/faq.md) | &nbsp;[Project Status](#status)&nbsp; | &nbsp;[Download](https://s3-us-west-2.amazonaws.com/download.noms.io/index.html?prefix=jobs/NomsBuildGoBinaries/)
+[Command-Line Tour](doc/cli-tour.md)&nbsp; | &nbsp;[Go SDK Tour](doc/go-tour.md)&nbsp; | &nbsp;[JavaScript SDK Tour](doc/js-tour.md)&nbsp; | &nbsp;[Documentation](doc/index.md)&nbsp; | &nbsp;[Project Status](#status)&nbsp; | &nbsp;[Download](https://s3-us-west-2.amazonaws.com/download.noms.io/index.html?prefix=jobs/NomsBuildGoBinaries/)
 <br><br>
 [![Build Status](http://jenkins.noms.io/job/NomsMasterBuilder/badge/icon)](http://jenkins.noms.io/job/NomsMasterBuilder)
 [![codecov](https://codecov.io/gh/attic-labs/noms/branch/master/graph/badge.svg)](https://codecov.io/gh/attic-labs/noms)
@@ -28,16 +28,16 @@ Noms is different from other databases. It is:
 <br/>
 ## Setup
 
-Noms is supported on Mac OS X and Linux. Windows usually works, but isn't officially supported.
+Noms is supported on Mac OS X and Linux. You can compile a Windows build from source, and it usually works, but isn't officially supported.
 
-1. Install [Go 1.6+](https://golang.org/dl/)
-2. Ensure your [$GOPATH](https://github.com/golang/go/wiki/GOPATH) is configured, add `$GOPATH/bin` to your `$PATH`
-3. Type type type:
+1. [Download the latest Noms build](https://s3-us-west-2.amazonaws.com/download.noms.io/index.html?prefix=jobs/NomsBuildGoBinaries/)
+2. Extract it: `tar -xzf noms-*.tar.gz`
+2. Run:
+
 ```
-git clone https://github.com/attic-labs/noms $GOPATH/src/github.com/attic-labs/noms
-go install github.com/attic-labs/noms/cmd/noms
+./noms ds http://demo.noms.io/cli-tour
 
-noms log http://demo.noms.io/cli-tour::sf-film-locations
+./noms log http://demo.noms.io/cli-tour::sf-film-locations
 ```
 
 

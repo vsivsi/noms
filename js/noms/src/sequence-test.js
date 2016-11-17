@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import {suite, test} from 'mocha';
 import {assert} from 'chai';
@@ -15,8 +15,7 @@ class TestSequence extends Sequence<any> {
     super(null, makeListType(valueType), items);
   }
 
-  getChildSequence(idx: number): // eslint-disable-line no-unused-vars
-      Promise<?Sequence<any>> {
+  getChildSequence(idx: number): Promise<?Sequence<any>> {
     return Promise.resolve(new TestSequence(this.items[idx]));
   }
 }

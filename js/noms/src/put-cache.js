@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import tingodb from 'tingodb';
 import type {tcoll as Collection} from 'tingodb';
@@ -16,7 +16,7 @@ const __tingodb = tingodb();
 const Db = __tingodb.Db;
 const Binary = __tingodb.Binary;
 
-type ChunkStream = (cb: (chunk: Chunk) => void) => Promise<void>
+type ChunkStream = (cb: (chunk: Chunk) => void) => Promise<void>;
 type ChunkItem = {hash: string, data: Uint8Array};
 type DbRecord = {hash: string, data: Binary};
 
@@ -84,7 +84,6 @@ export default class OrderedPutCache {
       // TODO: This should be resolve(emptyChunk)
       return null;
     }
-    //$FlowIssue
     return Promise.all(this._appends)
       .then(() => this._coll)
       .then(coll => coll.findOne(hash))
@@ -104,7 +103,6 @@ export default class OrderedPutCache {
     if (!this._chunkIndex.has(limit)) {
       return Promise.reject(new Error('Tried to drop unknown chunk: ' + limit));
     }
-    //$FlowIssue
     return Promise.all(this._appends).then(() => this._coll).then(coll => {
       let count = 0;
       for (const [hash, dbKey] of this._chunkIndex) {
@@ -121,7 +119,6 @@ export default class OrderedPutCache {
    * Returns a stream that iterates over the chunks between `first` and `last` (inclusive).
    */
   extractChunks(first: string, last: string): Promise<ChunkStream> {
-    //$FlowIssue
     return Promise.all(this._appends)
       .then(() => this._coll)
       .then(coll => {
@@ -183,7 +180,6 @@ class DbCollection {
   insert(item: ChunkItem, options: Object = {}): Promise<number> {
     return new Promise((resolve, reject) => {
       options.w = 1;
-      //$FlowIssue
       const data = new Binary(new Buffer(item.data.buffer));
       this._coll.insert({hash: item.hash, data: data}, options, (err, result) => {
         if (err) {
@@ -236,7 +232,6 @@ function recordToItem(record: DbRecord): ChunkItem {
 
 function makeTempDir(): Promise<string> {
   return new Promise((resolve, reject) => {
-    //$FlowIssue
     fs.mkdtemp('/tmp/put-cache-', (err, folder) => {
       if (err) {
         reject(err);

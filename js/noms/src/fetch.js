@@ -1,18 +1,20 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
 
-import {request} from 'http';
+// @flow
+
+import * as http from 'http';
+import * as https from 'https';
 import {parse} from 'url';
 import * as Bytes from './bytes.js';
+import HttpError from './http-error.js';
 
 export type FetchOptions = {
-  method?: string,
+  method?: ?MethodType, // from flowlib bom.js
   body?: any,
-  headers?: {[key: string]: string},
-  withCredentials? : boolean,
+  headers?: ?{[key: string]: string},
+  withCredentials?: ?boolean,
 };
 
 type Response<T> = {headers: Map<string, string>, buf: T};
@@ -27,6 +29,11 @@ function objectToMap<T>(object: {[key: string]: T}): Map<string, T> {
   return m;
 }
 
+const requestModules = {
+  'http:': http,
+  'https:': https,
+};
+
 function fetch(url: string, options: FetchOptions = {}): Promise<BufResponse> {
   const opts: any = parse(url);
   opts.method = options.method || 'GET';
@@ -34,9 +41,9 @@ function fetch(url: string, options: FetchOptions = {}): Promise<BufResponse> {
     opts.headers = options.headers;
   }
   return new Promise((resolve, reject) => {
-    const req = request(opts, res => {
+    const req = requestModules[opts.protocol].request(opts, res => {
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        reject(new Error(`HTTP Error: ${res.statusCode}`));
+        reject(new HttpError(res.statusCode));
         return;
       }
 
@@ -72,7 +79,7 @@ function fetch(url: string, options: FetchOptions = {}): Promise<BufResponse> {
     // then catch that event and report an error.
     req.setTimeout(2 * 60 * 1000, () => req.abort());
     req.on('abort', () => {
-      reject(new Error('HTTP request timed out'));
+      reject(new Error('Request timed out'));
     });
 
     if (options.body) {
@@ -83,7 +90,6 @@ function fetch(url: string, options: FetchOptions = {}): Promise<BufResponse> {
 }
 
 function arrayBufferToBuffer(ab: ArrayBuffer): Buffer {
-  // $FlowIssue: Node type declaration doesn't include ArrayBuffer.
   return new Buffer(ab);
 }
 

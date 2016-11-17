@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Database from './database.js';
 import type Collection from './collection.js';
@@ -40,8 +40,7 @@ export async function flatten<T>(iter: AsyncIterator<T>): Promise<Array<T>> {
   return values;
 }
 
-export async function flattenParallel<T>(iter: AsyncIterator<T>, count: number):
-    Promise<Array<T>> {
+export async function flattenParallel<T>(iter: AsyncIterator<T>, count: number): Promise<T[]> {
   const promises = [];
   for (let i = 0; i < count; i++) {
     promises.push(iter.next());

@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import type {ValueReader} from './value-store.js';
 import {invariant, notNull} from './assert.js';
@@ -252,7 +252,7 @@ export class SequenceIterator<T, S: Sequence<any>> extends AsyncIterator<T> {
   // Wraps |_advance|.then() with the guarantee that |_advance| hasn't changed since running .then()
   // and the callback being run.
   _safeAdvance(fn: (success: boolean) => AsyncIteratorResult<T> | Promise<AsyncIteratorResult<T>>)
-              :Promise<AsyncIteratorResult<T>> {
+      : Promise<AsyncIteratorResult<T>> {
     const run = advance =>
       advance.then(success => {
         if (advance !== this._advance) {

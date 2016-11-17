@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import assertSubtype from './assert-type.js';
 import type Ref from './ref.js';
@@ -15,6 +15,7 @@ import {getTypeOfValue, makeStructType, findFieldIndex} from './type.js';
 import {invariant} from './assert.js';
 import {isPrimitive} from './primitives.js';
 import * as Bytes from './bytes.js';
+import {isSubtype} from './assert-type.js';
 
 type StructData = {[key: string]: Value};
 
@@ -106,24 +107,32 @@ export class StructFieldMirror {
   }
 }
 
-type FieldCallback = (f: StructFieldMirror) => void;
-
 /**
  * A StructMirror allows reflection of a Noms struct.
- * This allows you to get and set a field by its name. Normally a Noms Struct will have a
+ * This allows you to get, set and remove a field by its name. Normally a Noms Struct will have
  * properties `foo` and method `setFoo(v)` to get and set a struct field but if the field name
  * conflicts with one of the properties provided by ValueBase then the only way to get and set them
  * is by using a StructMirror.
  */
 export class StructMirror<T: Struct> {
   _values: Value[];
-  type: Type<StructDesc>;
+  _s: T;
 
-  constructor(s: Struct) {
+  constructor(s: T) {
+    this._s = s;
     this._values = s._values;
-    this.type = s.type;
   }
 
+  /**
+   * The type of the struct this mirror is representing.
+   */
+  get type(): Type<StructDesc> {
+    return this._s.type;
+  }
+
+  /**
+   * The StructDesc describing the struct type.
+   */
   get desc(): StructDesc {
     return this.type.desc;
   }
@@ -131,38 +140,93 @@ export class StructMirror<T: Struct> {
   /**
    * Iterates over all the fields in the struct and calls `cb`.
    */
-  forEachField(cb: FieldCallback) {
+  forEachField(cb: (f: StructFieldMirror) => void) {
     this.desc.fields.forEach((f, i) => {
       cb(new StructFieldMirror(this._values[i], f.name, f.type));
     });
   }
 
+  /**
+   * The name of the struct type.
+   */
   get name(): string {
     return this.desc.name;
   }
 
+  /**
+   * Gets the value of a field in the struct. If the struct does not a have a field with the name
+   * `name` then this returns `undefined`.
+   */
   get(name: string): ?Value {
     const i = findFieldIndex(name, this.desc.fields);
     return i !== -1 ? this._values[i] : undefined;
   }
 
+  /**
+   * Whether the struct has a field with the name `name`.
+   */
   has(name: string): boolean {
     return findFieldIndex(name, this.desc.fields) !== -1;
   }
 
   /**
-   * Returns a new struct where the field `name` has been set to `value`.
+   * Returns a new struct where the field `name` has been set to `value`. If `name` is not an
+   * existing field in the struct or the type of `value` is different from the old value of the
+   * struct field a new struct type is created.
    */
-  set(name: string, value: Value): T {
-    const values = setValue(this._values, this.desc.fields, name, value);
-    return newStructWithType(this.type, values);
+  set(name: string, value: Value): Struct {
+    const fields = this.desc.fields;
+    const i = findFieldIndex(name, fields);
+    if (i === -1 || !isSubtype(fields[i].type, getTypeOfValue(value))) {
+      // New/change field
+      const data = Object.create(null);
+      for (let i = 0; i < fields.length; i++) {
+        data[fields[i].name] = this._values[i];
+      }
+      data[name] = value;
+      return newStruct(this.name, data);
+    }
+
+    const newValues = this._values.concat();  // shallow clone
+    newValues[i] = value;
+    return newStructWithType(this.type, newValues);
   }
+
+  /**
+   * Returns a new struct where the field `name` has been removed.
+   * If `name` is not an existing field in the struct then the current struct is returned.
+   */
+  delete(name: string): Struct {
+    const oldFields = this.desc.fields;
+    const idx = findFieldIndex(name, oldFields);
+    if (idx === -1) {
+      return this._s;
+    }
+
+    // New/change field
+    const values = this._values.concat();  // clone
+    values.splice(idx, 1);
+    const type = removeFieldFromType(this.type, idx);
+    return newStructWithValues(type, values);
+  }
+}
+
+function removeFieldFromType(type: Type<StructDesc>, idx: number): Type<StructDesc> {
+  const {desc} = type;
+  const fieldMap = Object.create(null);
+  let i = 0;
+  desc.forEachField((n, t) => {
+    if (i++ !== idx) {
+      fieldMap[n] = t;
+    }
+  });
+  return makeStructType(desc.name, fieldMap);
 }
 
 const cache: {[key: string]: Class<any>} = Object.create(null);
 
-function setterName(name) {
-  return `set${name[0].toUpperCase()}${name.slice(1)}`;
+function makeName(prefix, name) {
+  return `${prefix}${name[0].toUpperCase()}${name.slice(1)}`;
 }
 
 /**
@@ -198,10 +262,16 @@ export function createStructClass<T: Struct>(type: Type<StructDesc>): Class<T> {
         return this._values[i];
       },
     });
-    Object.defineProperty(c.prototype, setterName(f.name), {
+    Object.defineProperty(c.prototype, makeName('set', f.name), {
       configurable: true,
       enumerable: false,
       value: getSetter(i),
+      writable: true,
+    });
+    Object.defineProperty(c.prototype, makeName('delete', f.name), {
+      configurable: true,
+      enumerable: false,
+      value: getDeleter(i),
       writable: true,
     });
   });
@@ -217,12 +287,13 @@ function getSetter(i: number) {
   };
 }
 
-function setValue(values: Value[], fields: Field[], name: string, value: Value): Value[] {
-  const i = findFieldIndex(name, fields);
-  invariant(i !== -1);
-  const newValues = values.concat();  // shallow clone
-  newValues[i] = value;
-  return newValues;
+function getDeleter(i: number) {
+  return function() {
+    const values = this._values.concat();  // clone
+    values.splice(i, 1);
+    const type = removeFieldFromType(this.type, i);
+    return newStructWithType(type, values);
+  };
 }
 
 /**
@@ -264,13 +335,11 @@ export function newStructWithValues<T: Struct>(type: Type<any>, values: Value[])
 }
 
 function computeTypeForStruct(name: string, data: StructData): Type<StructDesc> {
-  const fieldNames = Object.keys(data);
-  const fieldTypes = new Array(fieldNames.length);
-  fieldNames.sort();
-  for (let i = 0; i < fieldNames.length; i++) {
-    fieldTypes[i] = getTypeOfValue(data[fieldNames[i]]);
+  const fields = {};
+  for (const k in data) {
+    fields[k] = getTypeOfValue(data[k]);
   }
-  return makeStructType(name, fieldNames, fieldTypes);
+  return makeStructType(name, fields);
 }
 
 /**

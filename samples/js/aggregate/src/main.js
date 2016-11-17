@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import argv from 'yargs';
 import {
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   const outSpec = DatasetSpec.parse(args._[1]);
   invariant(outSpec, quit('invalid input dataset spec'));
 
-  const input = inSpec.dataset();
+  const [, input] = inSpec.dataset();
   const rv = await input.headRef();
   if (!rv) {
     process.stderr.write(`{args._[0]} does not exist}\n`);
@@ -82,7 +82,8 @@ async function main(): Promise<void> {
     return true;
   });
 
-  await outSpec.dataset().commit(await out);
+  const [db, output] = outSpec.dataset();
+  await db.commit(output, await out);
 }
 
 function quit(err: string): Function {

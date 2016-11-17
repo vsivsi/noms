@@ -1,8 +1,8 @@
-// @flow
-
-// Copyright 2016 The Noms Authors. All rights reserved.
+// Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Hash, {byteLength as hashByteLength} from './hash.js';
 import type {NomsKind} from './noms-kind.js';
@@ -86,10 +86,18 @@ export default class TypeCache {
     return notNull(trie.t);
   }
 
-  makeStructType(name: string, fieldNames: string[], fieldTypes: Type<any>[]): Type<StructDesc> {
+  makeStructType(name: string, fields: { [key: string]: Type<any> }): Type<StructDesc> {
+    const fieldNames = Object.keys(fields).sort();
+    const fieldTypes = fieldNames.map(n => fields[n]);
+    return this.makeStructTypeQuickly(name, fieldNames, fieldTypes);
+  }
+
+  makeStructTypeQuickly(name: string, fieldNames: Array<string>, fieldTypes: Array<Type<any>>)
+      : Type<StructDesc> {
     if (fieldNames.length !== fieldTypes.length) {
       throw new Error('Field names and types must be of equal length');
     }
+
     verifyStructName(name);
     verifyFieldNames(fieldNames);
 

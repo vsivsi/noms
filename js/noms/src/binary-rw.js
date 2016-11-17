@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import * as Bytes from './bytes.js';
 import Hash, {byteLength as hashByteLength} from './hash.js';
@@ -158,7 +158,7 @@ export class BinaryWriter {
     this.offset += encodeVarint(expVal, this.buff, this.offset);
   }
 
-  writeBool(v:boolean): void {
+  writeBool(v: boolean): void {
     this.writeUint8(v ? 1 : 0);
   }
 

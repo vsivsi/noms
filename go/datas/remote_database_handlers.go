@@ -18,6 +18,7 @@ import (
 	"github.com/attic-labs/noms/go/d"
 	"github.com/attic-labs/noms/go/hash"
 	"github.com/attic-labs/noms/go/types"
+	"github.com/attic-labs/noms/go/util/orderedparallel"
 	"github.com/golang/snappy"
 )
 
@@ -29,7 +30,7 @@ type Handler func(w http.ResponseWriter, req *http.Request, ps URLParams, cs chu
 
 // NomsVersionHeader is the name of the header that Noms clients and servers must set in every request/response.
 const NomsVersionHeader = "x-noms-vers"
-const nomsBaseHtml = "<html><head></head><body><p>Hi. This is a Noms HTTP server.</p><p>To learn more, visit <a href=\"https://github.com/attic-labs/noms\">our GitHub project</a>.</p></body></html>"
+const nomsBaseHTML = "<html><head></head><body><p>Hi. This is a Noms HTTP server.</p><p>To learn more, visit <a href=\"https://github.com/attic-labs/noms\">our GitHub project</a>.</p></body></html>"
 
 var (
 	// HandleWriteValue is meant to handle HTTP POST requests to the writeValue/ server endpoint. The payload should be an appropriately-ordered sequence of Chunks to be validated and stored on the server.
@@ -57,6 +58,8 @@ var (
 	HandleBaseGet = handleBaseGet
 )
 
+const writeValueConcurrency = 16
+
 func versionCheck(hndlr Handler) Handler {
 	return func(w http.ResponseWriter, req *http.Request, ps URLParams, cs chunks.ChunkStore) {
 		w.Header().Set(NomsVersionHeader, constants.NomsVersion)
@@ -80,7 +83,9 @@ func versionCheck(hndlr Handler) Handler {
 }
 
 func handleWriteValue(w http.ResponseWriter, req *http.Request, ps URLParams, cs chunks.ChunkStore) {
-	d.PanicIfTrue(req.Method != "POST", "Expected post method.")
+	if req.Method != "POST" {
+		d.Panic("Expected post method.")
+	}
 
 	reader := bodyReader(req)
 	defer func() {
@@ -88,21 +93,30 @@ func handleWriteValue(w http.ResponseWriter, req *http.Request, ps URLParams, cs
 		io.Copy(ioutil.Discard, reader)
 		reader.Close()
 	}()
-	tc := types.NewTypeCache()
-	vbs := types.NewValidatingBatchingSink(cs, tc)
+	vbs := types.NewValidatingBatchingSink(cs)
 	vbs.Prepare(deserializeHints(reader))
 
-	chunkChan := make(chan *chunks.Chunk, 16)
+	chunkChan := make(chan interface{}, writeValueConcurrency)
 	go chunks.DeserializeToChan(reader, chunkChan)
+	decoded := orderedparallel.New(
+		chunkChan,
+		func(c interface{}) interface{} {
+			return vbs.DecodeUnqueued(c.(*chunks.Chunk))
+		},
+		writeValueConcurrency)
+
 	var bpe chunks.BackpressureError
-	for c := range chunkChan {
-		if bpe == nil {
-			bpe = vbs.Enqueue(*c)
-		} else {
-			bpe = append(bpe, c.Hash())
+	for dci := range decoded {
+		dc := dci.(types.DecodedChunk)
+		if dc.Chunk != nil && dc.Value != nil {
+			if bpe == nil {
+				bpe = vbs.Enqueue(*dc.Chunk, *dc.Value)
+			} else {
+				bpe = append(bpe, dc.Chunk.Hash())
+			}
+			// If a previous Enqueue() errored, we still need to drain chunkChan
+			// TODO: what about having DeserializeToChan take a 'done' channel to stop it?
 		}
-		// If a previous Enqueue() errored, we still need to drain chunkChan
-		// TODO: what about having DeserializeToChan take a 'done' channel to stop it?
 	}
 	if bpe == nil {
 		bpe = vbs.Flush()
@@ -171,7 +185,9 @@ func (wc wc) Close() error {
 }
 
 func handleGetRefs(w http.ResponseWriter, req *http.Request, ps URLParams, cs chunks.ChunkStore) {
-	d.PanicIfTrue(req.Method != "POST", "Expected post method.")
+	if req.Method != "POST" {
+		d.Panic("Expected post method.")
+	}
 
 	hashes := extractHashes(req)
 
@@ -191,7 +207,9 @@ func extractHashes(req *http.Request) hash.HashSlice {
 	err := req.ParseForm()
 	d.PanicIfError(err)
 	hashStrs := req.PostForm["ref"]
-	d.PanicIfTrue(len(hashStrs) <= 0, "PostForm is empty")
+	if len(hashStrs) <= 0 {
+		d.Panic("PostForm is empty")
+	}
 
 	hashes := make(hash.HashSlice, len(hashStrs))
 	for idx, refStr := range hashStrs {
@@ -209,7 +227,9 @@ func buildHashesRequest(hashes map[hash.Hash]struct{}) io.Reader {
 }
 
 func handleHasRefs(w http.ResponseWriter, req *http.Request, ps URLParams, cs chunks.ChunkStore) {
-	d.PanicIfTrue(req.Method != "POST", "Expected post method.")
+	if req.Method != "POST" {
+		d.Panic("Expected post method.")
+	}
 
 	hashes := extractHashes(req)
 
@@ -223,7 +243,9 @@ func handleHasRefs(w http.ResponseWriter, req *http.Request, ps URLParams, cs ch
 }
 
 func handleRootGet(w http.ResponseWriter, req *http.Request, ps URLParams, rt chunks.ChunkStore) {
-	d.PanicIfTrue(req.Method != "GET", "Expected get method.")
+	if req.Method != "GET" {
+		d.Panic("Expected get method.")
+	}
 
 	rootRef := rt.Root()
 	fmt.Fprintf(w, "%v", rootRef.String())
@@ -231,23 +253,33 @@ func handleRootGet(w http.ResponseWriter, req *http.Request, ps URLParams, rt ch
 }
 
 func handleRootPost(w http.ResponseWriter, req *http.Request, ps URLParams, cs chunks.ChunkStore) {
-	d.PanicIfTrue(req.Method != "POST", "Expected post method.")
+	if req.Method != "POST" {
+		d.Panic("Expected post method.")
+	}
 
 	params := req.URL.Query()
 	tokens := params["last"]
-	d.PanicIfTrue(len(tokens) != 1, `Expected "last" query param value`)
+	if len(tokens) != 1 {
+		d.Panic(`Expected "last" query param value`)
+	}
 	last := hash.Parse(tokens[0])
 	tokens = params["current"]
-	d.PanicIfTrue(len(tokens) != 1, `Expected "current" query param value`)
+	if len(tokens) != 1 {
+		d.Panic(`Expected "current" query param value`)
+	}
 	current := hash.Parse(tokens[0])
 
 	// Ensure that proposed new Root is present in cs
 	c := cs.Get(current)
-	d.PanicIfTrue(c.IsEmpty(), "Can't set Root to a non-present Chunk")
+	if c.IsEmpty() {
+		d.Panic("Can't set Root to a non-present Chunk")
+	}
 
 	// Ensure that proposed new Root is a Map and, if it has anything in it, that it's <String, <Ref<Commit>>
 	v := types.DecodeValue(c, nil)
-	d.PanicIfTrue(v.Type().Kind() != types.MapKind, "Root of a Database must be a Map")
+	if v.Type().Kind() != types.MapKind {
+		d.Panic("Root of a Database must be a Map")
+	}
 	m := v.(types.Map)
 	if !m.Empty() && !isMapOfStringToRefOfCommit(m) {
 		panic(d.Wrap(fmt.Errorf("Root of a Database must be a Map<String, Ref<Commit>>, not %s", m.Type().Describe())))
@@ -260,10 +292,12 @@ func handleRootPost(w http.ResponseWriter, req *http.Request, ps URLParams, cs c
 }
 
 func handleBaseGet(w http.ResponseWriter, req *http.Request, ps URLParams, rt chunks.ChunkStore) {
-	d.PanicIfTrue(req.Method != "GET", "Expected get method.")
+	if req.Method != "GET" {
+		d.Panic("Expected get method.")
+	}
 
 	w.Header().Add("content-type", "text/html")
-	fmt.Fprintf(w, nomsBaseHtml)
+	fmt.Fprintf(w, nomsBaseHTML)
 }
 
 func isMapOfStringToRefOfCommit(m types.Map) bool {

@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Hash from './hash.js';
 import RemoteBatchStore from './remote-batch-store.js';
@@ -15,9 +15,11 @@ import {
   fetchUint8Array as fetchUint8ArrayWithoutVersion,
   fetchText as fetchTextWithoutVersion,
 } from './fetch.js';
+import HttpError from './http-error.js';
 import {notNull} from './assert.js';
 import nomsVersion from './version.js';
 
+export const DEFAULT_MAX_READS = 5;
 const HTTP_STATUS_CONFLICT = 409;
 const versionHeader = 'x-noms-vers';
 
@@ -51,7 +53,8 @@ const readBatchOptions = {
 export default class HttpBatchStore extends RemoteBatchStore {
   _rpc: RpcStrings;
 
-  constructor(urlparam: string, maxReads: number = 5, fetchOptions: FetchOptions = {}) {
+  constructor(
+      urlparam: string, maxReads: number = DEFAULT_MAX_READS, fetchOptions: FetchOptions = {}) {
     const [url, params] = separateParams(urlparam);
     const rpc = {
       getRefs: url + '/getRefs/' + params,
@@ -151,7 +154,7 @@ export class Delegate {
       }
       return true;
     } catch (ex) {
-      if (ex === HTTP_STATUS_CONFLICT) {
+      if (ex instanceof HttpError && ex.status === HTTP_STATUS_CONFLICT) {
         return false;
       }
       throw ex;

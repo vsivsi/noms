@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import {suite, suiteSetup, suiteTeardown, test} from 'mocha';
 import {assert} from 'chai';
@@ -109,14 +109,11 @@ suite('walk', () => {
   });
 
   test('struct', async () => {
-    const t = makeStructType('Thing',
-      ['foo', 'list', 'num'],
-      [
-        stringType,
-        makeListType(numberType),
-        numberType,
-      ]
-    );
+    const t = makeStructType('Thing', {
+      foo: stringType,
+      list: makeListType(numberType),
+      num: numberType,
+    });
 
     const c = createStructClass(t);
     const val = new c({
@@ -167,7 +164,7 @@ suite('walk', () => {
   });
 });
 
-async function callbackHappensOnce(v: Value, ds: Database, skip: bool): Promise<void> {
+async function callbackHappensOnce(v: Value, ds: Database, skip: boolean): Promise<void> {
   // Test that our callback only gets called once.
   let count = 0;
   await walk(v, ds, async cv => {

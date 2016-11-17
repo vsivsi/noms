@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import {assert} from 'chai';
 import {suite, setup, teardown, test} from 'mocha';
@@ -110,7 +110,7 @@ suite('List', () => {
     assert.deepEqual(nums, out);
   }
 
-  async function testForEachAsyncCB(nums: Array<any>, list: List<any>): Promise<void> {
+  function testForEachAsyncCB(nums: Array<any>, list: List<any>): Promise<void> {
     let resolver = null;
     const p = new Promise(resolve => resolver = resolve);
 

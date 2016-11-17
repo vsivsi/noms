@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import Ref from './ref.js';
 import type {NomsKind} from './noms-kind.js';
@@ -16,7 +16,7 @@ import search from './binary-search.js';
 import {staticTypeCache} from './type-cache.js';
 
 export interface TypeDesc {
-  kind: NomsKind;
+  +kind: NomsKind;  // Hack: Makes this covariant to allow implementatations to not have a setter.
   hasUnresolvedCycle(visited: Type<any>[]): boolean;
 }
 
@@ -195,9 +195,8 @@ export function makeRefType(elemType: Type<any>): Type<CompoundDesc> {
   return staticTypeCache.getCompoundType(Kind.Ref, elemType);
 }
 
-export function makeStructType(name: string, fieldNames: string[], fieldTypes: Type<any>[]):
-    Type<StructDesc> {
-  return staticTypeCache.makeStructType(name, fieldNames, fieldTypes);
+export function makeStructType(name: string, fields: {[key: string]: Type<any>}): Type<StructDesc> {
+  return staticTypeCache.makeStructType(name, fields);
 }
 
 /**

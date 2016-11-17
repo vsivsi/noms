@@ -1,8 +1,8 @@
-// @flow
-
 // Copyright 2016 Attic Labs, Inc. All rights reserved.
 // Licensed under the Apache License, version 2.0:
 // http://www.apache.org/licenses/LICENSE-2.0
+
+// @flow
 
 import {invariant} from './assert.js';
 import type Value from './value.js';
@@ -136,7 +136,7 @@ function constructPath(parts: Array<Part>, str: string) {
   throw new SyntaxError(`Invalid operator: ${op}`);
 }
 
-function parsePathIndex(str: string): [indexType|null, Hash|null, string] {
+function parsePathIndex(str: string): [indexType | null, Hash | null, string] {
   if (str[0] === '"') {
     // String is complicated because ] might be quoted, and " or \ might be escaped.
     const stringBuf = [];

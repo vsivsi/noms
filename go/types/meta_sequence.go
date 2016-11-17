@@ -35,7 +35,6 @@ func (mt metaTuple) getChildSequence(vr ValueReader) sequence {
 	if mt.child != nil {
 		return mt.child.sequence()
 	}
-
 	return mt.ref.TargetValue(vr).(Collection).sequence()
 }
 
@@ -126,12 +125,10 @@ func (ms metaSequence) valueReader() ValueReader {
 	return ms.vr
 }
 
-func (ms metaSequence) Chunks() []Ref {
-	chunks := make([]Ref, len(ms.tuples))
-	for i, tuple := range ms.tuples {
-		chunks[i] = tuple.ref
+func (ms metaSequence) WalkRefs(cb RefCallback) {
+	for _, tuple := range ms.tuples {
+		cb(tuple.ref)
 	}
-	return chunks
 }
 
 func (ms metaSequence) Type() *Type {
@@ -263,8 +260,7 @@ func (es emptySequence) valueReader() ValueReader {
 	return nil
 }
 
-func (es emptySequence) Chunks() (chunks []Ref) {
-	return
+func (es emptySequence) WalkRefs(cb RefCallback) {
 }
 
 func (es emptySequence) Type() *Type {
